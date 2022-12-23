@@ -1,465 +1,19 @@
-from abc import ABC, abstractmethod
-from typing import Dict, List, Union, Callable
+from abc import abstractmethod
+from typing import Dict, List, Union, Optional
 import pandas as pd
 from idecomp.decomp.dadger import Dadger
-from idecomp.decomp.modelos.dadgnl import NL, GL
-
+from idecomp.decomp.modelos.dadger import CQ, DP, SB, HQ, LQ
+from idecomp.decomp.relato import Relato
+from inewave.newave import Confhd, Modif, RE, DGer
+from inewave.newave.modelos.modif import USINA, VAZMIN, VAZMINT
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from app.models.program import Program
-from app.internal.httpresponse import HTTPResponse
-from app.models.chainingresult import ChainingResult
-from app.models.chainingvariable import ChainingVariable
-from app.services.unitofwork import AbstractUnitOfWork
-from app.utils.log import Log
-
-
-class AbstractChainingRepository(ABC):
-    """ """
-
-    async def chain(
-        self,
-        variable: ChainingVariable,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        RULES: Dict[ChainingVariable, Callable] = {
-            ChainingVariable.VARM: self.chain_varm,
-            ChainingVariable.TVIAGEM: self.chain_tviagem,
-            ChainingVariable.GNL: self.chain_gnl,
-            ChainingVariable.ENA: self.chain_ena,
-        }
-        f = RULES.get(variable)
-        if f is None:
-            return HTTPResponse(code=404, detail=f"{variable} not supported")
-        return await f(sources_uow, destination_uow)
-
-    @abstractmethod
-    async def chain_varm(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        pass
-
-    @abstractmethod
-    async def chain_tviagem(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        pass
-
-    @abstractmethod
-    async def chain_gnl(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        pass
-
-    @abstractmethod
-    async def chain_ena(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        pass
-
-
-class NEWAVEChainingRepository(AbstractChainingRepository):
-    """ """
-
-    async def chain_varm(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        def __numero_uhe_decomp(numero_newave: int) -> int:
-            mapa_ficticias_NW_DC = {
-                318: 122,
-                319: 57,
-                294: 162,
-                295: 156,
-                308: 155,
-                298: 148,
-                292: 252,
-                302: 261,
-                303: 257,
-                306: 253,
-            }
-            if numero_newave in mapa_ficticias_NW_DC.keys():
-                return mapa_ficticias_NW_DC[numero_newave]
-            else:
-                return numero_newave
-
-        def __coluna_para_encadear() -> str:
-            # TODO - voltar a suportar caso de NW semanal
-            # if self._caso_atual.revisao == 0:
-            if True:
-                return "Estágio 1"
-            else:
-                return list(volumes.columns)[-2]
-
-        def __encadeia_ilha_solteira_equiv(
-            volumes: pd.DataFrame, usinas: pd.DataFrame
-        ) -> pd.DataFrame:
-            vol = float(
-                volumes.loc[volumes["Número"] == 44, __coluna_para_encadear()]
-            )
-            Log.log().info(f"Caso especial de I. Solteira Equiv: {vol} %")
-            usinas.loc[usinas["Número"] == 34, "Volume Inicial"] = vol
-            usinas.loc[usinas["Número"] == 43, "Volume Inicial"] = vol
-            results.append(ChainingResult(id=hidr.at[34, "Nome"], value=vol))
-            results.append(ChainingResult(id=hidr.at[43, "Nome"], value=vol))
-            return usinas
-
-        def __correcao_serra_mesa_ficticia(vol: float) -> float:
-            return min([100.0, vol / 0.55])
-
-        def __separou_ilha_solteira_equiv(
-            volumes: pd.DataFrame, usinas: pd.DataFrame
-        ) -> bool:
-            # Saber se tem I. Solteira Equiv. no DECOMP mas tem as
-            # usinas separadas no NEWAVE
-            usinas_newave = usinas["Número"].tolist()
-            usinas_decomp = volumes["Número"].tolist()
-            return all(
-                [
-                    44 not in usinas_newave,
-                    43 in usinas_newave,
-                    34 in usinas_newave,
-                    44 in usinas_decomp,
-                    43 not in usinas_decomp,
-                    34 not in usinas_decomp,
-                ]
-            )
-
-        def __interpola_volume() -> float:
-            # TODO - implementar para maior precisão
-            pass
-
-        SERRA_MESA_FICT_DC = 251
-        SERRA_MESA_FICT_NW = 291
-
-        decomps_uow = [s for s in sources_uow if s.program == Program.DECOMP]
-        if len(decomps_uow) == 0:
-            return HTTPResponse(
-                code=422, detail=f"must have at least 1 DECOMP source"
-            )
-        last_decomp_uow = decomps_uow[-1]
-
-        Log.log().info("Encadeando VARM - DECOMP -> NEWAVE")
-        with last_decomp_uow:
-            relato = last_decomp_uow.files.get_relato()
-        if isinstance(relato, HTTPResponse):
-            return relato
-
-        volumes = relato.volume_util_reservatorios
-        with destination_uow:
-            hidr = destination_uow.files.get_hidr()
-            confhd = destination_uow.files.get_confhd()
-        if isinstance(confhd, HTTPResponse):
-            return confhd
-        if isinstance(hidr, HTTPResponse):
-            return hidr
-
-        hidr = hidr.cadastro
-        usinas = confhd.usinas
-
-        results: List[ChainingResult] = []
-        # Atualiza cada armazenamento
-        for _, linha in usinas.iterrows():
-            num = linha["Número"]
-            num_dc = __numero_uhe_decomp(num)
-            # Confere se tem o reservatório
-            if num_dc not in set(volumes["Número"]):
-                continue
-            vol = float(
-                volumes.loc[
-                    volumes["Número"] == num_dc, __coluna_para_encadear()
-                ]
-            )
-            if num_dc == SERRA_MESA_FICT_DC:
-                vf = __correcao_serra_mesa_ficticia(vol)
-                num_nw = SERRA_MESA_FICT_NW
-                usinas.loc[usinas["Número"] == num_nw, "Volume Inicial"] = vf
-                results.append(
-                    ChainingResult(id=hidr.at[num_nw, "Nome"], value=vf)
-                )
-
-            usinas.loc[usinas["Número"] == num, "Volume Inicial"] = vol
-            results.append(ChainingResult(id=hidr.at[num, "Nome"], value=vol))
-
-        # Trata o caso de I. Solteira Equiv.
-        if __separou_ilha_solteira_equiv(volumes, usinas):
-            usinas = __encadeia_ilha_solteira_equiv(volumes, usinas)
-
-        with destination_uow:
-            res = destination_uow.files.set_confhd(confhd)
-            if res.code != 200:
-                return res
-
-        return results
-
-    async def chain_tviagem(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        return HTTPResponse(code=405, detail="TVIAGEM not allowed for NEWAVE")
-
-    async def chain_gnl(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        return HTTPResponse(code=501, detail="GNL not implemented for NEWAVE")
-
-    async def chain_ena(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        return HTTPResponse(code=501, detail="ENA not implemented for NEWAVE")
-
-
-class DECOMPChainingRepository(AbstractChainingRepository):
-    """ """
-
-    async def chain_varm(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        decomps_uow = [s for s in sources_uow if s.program == Program.DECOMP]
-        if len(decomps_uow) == 0:
-            return HTTPResponse(
-                code=422, detail=f"must have at least 1 DECOMP source"
-            )
-        last_decomp_uow = decomps_uow[-1]
-        Log.log().info("Encadeando VARM - DECOMP -> DECOMP")
-
-        def __separou_ilha_solteira_equiv(
-            volumes: pd.DataFrame, dadger: Dadger
-        ) -> bool:
-            # Saber se tem I. Solteira Equiv. no DECOMP mas tem as
-            # usinas separadas no próximo DECOMP
-            vols_relato = volumes["Número"].tolist()
-
-            existe_equiv_relato = 44 in vols_relato
-            existem_separadas_relato = all(
-                [34 in vols_relato, 43 in vols_relato]
-            )
-            existe_equiv_dadger = dadger.uh(44) is not None
-            existem_separadas_dadger = (dadger.uh(34) is not None) and (
-                dadger.uh(43) is not None
-            )
-            return all(
-                [
-                    existe_equiv_relato,
-                    not existem_separadas_relato,
-                    not existe_equiv_dadger,
-                    existem_separadas_dadger,
-                ]
-            )
-
-        def __encadeia_ilha_solteira_equiv(
-            volumes: pd.DataFrame, dadger: Dadger
-        ):
-            vol = float(volumes.loc[volumes["Número"] == 44, "Estágio 1"])
-            Log.log().info(f"Caso especial de I. Solteira Equiv: {vol} %")
-            dadger.uh(34).volume_inicial = vol
-            dadger.uh(43).volume_inicial = vol
-            results.append(ChainingResult(id=hidr.at[34, "Nome"], value=vol))
-            results.append(ChainingResult(id=hidr.at[43, "Nome"], value=vol))
-
-        with last_decomp_uow:
-            relato = last_decomp_uow.files.get_relato()
-        if isinstance(relato, HTTPResponse):
-            return relato
-
-        with destination_uow:
-            dadger = await destination_uow.files.get_dadger()
-            hidr = destination_uow.files.get_hidr()
-        if isinstance(dadger, HTTPResponse):
-            return dadger
-        if isinstance(hidr, HTTPResponse):
-            return hidr
-
-        hidr = hidr.cadastro
-        volumes = relato.volume_util_reservatorios
-        results: List[ChainingResult] = []
-        # Encadeia cada armazenamento
-        for _, linha in volumes.iterrows():
-            num = linha["Número"]
-
-            # Caso especial de I. Solteira Equiv.
-            if num == 44 and __separou_ilha_solteira_equiv(volumes, dadger):
-                __encadeia_ilha_solteira_equiv(volumes, dadger)
-                continue
-
-            vol = float(volumes.loc[volumes["Número"] == num, "Estágio 1"])
-            dadger.uh(num).volume_inicial = vol
-            results.append(ChainingResult(id=hidr.at[num, "Nome"], value=vol))
-
-        with destination_uow:
-            res = destination_uow.files.set_dadger(dadger)
-            if res.code != 200:
-                return res
-
-        return results
-
-    async def chain_tviagem(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        def __codigos_usinas_tviagem() -> List[int]:
-            return [156, 162]
-
-        decomps_uow = [s for s in sources_uow if s.program == Program.DECOMP]
-        if len(decomps_uow) == 0:
-            return HTTPResponse(
-                code=422, detail=f"must have at least 1 DECOMP source"
-            )
-        last_decomp_uow = decomps_uow[-1]
-        Log.log().info("Encadeando TVIAGEM - DECOMP -> DECOMP")
-        with last_decomp_uow:
-            dadger_ant = await last_decomp_uow.files.get_dadger()
-            relato = last_decomp_uow.files.get_relato()
-        if isinstance(dadger_ant, HTTPResponse):
-            return dadger_ant
-        if isinstance(relato, HTTPResponse):
-            return relato
-        with destination_uow:
-            dadger = await destination_uow.files.get_dadger()
-            hidr = destination_uow.files.get_hidr().cadastro
-        if isinstance(dadger, HTTPResponse):
-            return dadger
-        if isinstance(hidr, HTTPResponse):
-            return hidr
-
-        relatorio = relato.relatorio_operacao_uhe
-        results: List[ChainingResult] = []
-        # Encadeia cada tempo de viagem
-        for codigo in __codigos_usinas_tviagem():
-            # Extrai o Qdef do relato
-            qdef = float(
-                relatorio.loc[
-                    (relatorio["Estágio"] == 1)
-                    & (relatorio["Código"] == codigo),
-                    "Qdef (m3/s)",
-                ]
-            )
-            # Atualiza os tempos de viagem no dadger
-            vi = dadger_ant.vi(codigo)
-            dadger.vi(codigo).vazoes = [qdef] + vi.vazoes[:-1]
-            results.append(
-                ChainingResult(id=hidr.at[codigo, "Nome"], value=qdef)
-            )
-
-        with destination_uow:
-            res = destination_uow.files.set_dadger(dadger)
-            if res.code != 200:
-                return res
-
-        return results
-
-    async def chain_gnl(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-
-        decomps_uow = [s for s in sources_uow if s.program == Program.DECOMP]
-        if len(decomps_uow) == 0:
-            return HTTPResponse(
-                code=422, detail=f"must have at least 1 DECOMP source"
-            )
-        last_decomp_uow = decomps_uow[-1]
-        Log.log().info("Encadeando GNL - DECOMP -> DECOMP")
-
-        with last_decomp_uow:
-            dad_anterior = await last_decomp_uow.files.get_dadgnl()
-            rel = last_decomp_uow.files.get_relgnl()
-        if isinstance(dad_anterior, HTTPResponse):
-            return dad_anterior
-        if isinstance(rel, HTTPResponse):
-            return rel
-
-        with destination_uow:
-            dad = await destination_uow.files.get_dadgnl()
-        if isinstance(dad, HTTPResponse):
-            return dad
-
-        cods = rel.usinas_termicas["Código"].unique()
-        usinas = rel.usinas_termicas["Usina"].unique()
-        mapa_codigo_usina = {c: u for c, u in zip(cods, usinas)}
-
-        registros_nl: List[NL] = dad.nl()
-        codigos = [r.codigo for r in registros_nl]
-        registros: List[GL] = dad.gl()
-        registros_anteriores: List[GL] = dad_anterior.gl()
-        results: List[ChainingResult] = []
-        for c in codigos:
-            # Para cada semana i (exceto a última), o registro GL do DadGNL do
-            # caso atual deve ter o valor do respectivo registro GL do DadGNL
-            # do caso anterior na semana i + 1
-            registros_usina = [r for r in registros if r.codigo == c]
-            registros_usina_anterior = [
-                r for r in registros_anteriores if r.codigo == c
-            ]
-            # Se a usina não existia no deck anterior, ignora
-            if len(registros_usina_anterior) == 0:
-                continue
-            cols_despacho = [f"Despacho Pat. {i}" for i in [1, 2, 3]]
-            for r in registros_usina:
-                # Para a última semana, o registro GL do DadGNL atual deve vir
-                # do RelGNL do caso anterior, onde a semana de início tenha o
-                # mesmo valor.
-                if r == registros_usina[-1]:
-                    op = rel.relatorio_operacao_termica
-                    data = (
-                        r.data_inicio[:2]
-                        + "/"
-                        + r.data_inicio[2:4]
-                        + "/"
-                        + r.data_inicio[4:]
-                    )
-                    # Procura pela linha em op filtrando por nome, data
-                    # e pegando as colunas dos despachos
-                    nome = mapa_codigo_usina[c]
-                    filtro = (op["Usina"] == nome) & (
-                        op["Início Semana"] == data
-                    )
-                    geracoes = op.loc[filtro, cols_despacho].to_numpy()
-                    r.geracoes = [g for g in geracoes[0]]
-                    results.append(ChainingResult(id=nome, value=geracoes[-1]))
-                else:
-                    # Procura pelo registro anterior com a mesma data
-                    reg_ant = [
-                        ra
-                        for ra in registros_usina_anterior
-                        if ra.data_inicio == r.data_inicio
-                    ][0]
-                    r.geracoes = reg_ant.geracoes
-
-        with destination_uow:
-            res = destination_uow.files.set_dadgnl(dad)
-            if res.code != 200:
-                return res
-
-        return results
-
-    async def chain_ena(
-        self,
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ChainingResult], HTTPResponse]:
-        return HTTPResponse(code=405, detail="ENA not allowed for DECOMP")
-
-
 from app.models.reservoirrule import ReservoirRule
 from app.models.reservoirgrouprule import ReservoirGroupRule
+from app.internal.httpresponse import HTTPResponse
+from app.services.unitofwork import AbstractUnitOfWork
+from app.utils.log import Log
 
 
 class AbstractReservoirRuleRepository:
@@ -562,7 +116,7 @@ class AbstractReservoirRuleRepository:
         return groupedRules
 
     @abstractmethod
-    def apply(
+    async def apply(
         self,
         rules: List[ReservoirRule],
         sources_uow: List[AbstractUnitOfWork],
@@ -574,31 +128,6 @@ class AbstractReservoirRuleRepository:
 class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
     """ """
 
-    def apply(
-        self,
-        rules: List[ReservoirRule],
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
-        pass
-
-
-class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
-    """ """
-
-    def apply(
-        self,
-        rules: List[ReservoirRule],
-        sources_uow: List[AbstractUnitOfWork],
-        destination_uow: AbstractUnitOfWork,
-    ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
-        pass
-
-
-class AplicadorRegrasReservatoriosNEWAVE(AplicadorRegrasReservatorios):
-    def __init__(self, caso: Caso) -> None:
-        super().__init__(caso)
-
     MAPA_FICTICIAS_MODIF: Dict[int, List[int]] = {
         156: [156, 295],
         178: [172, 176, 178],
@@ -608,327 +137,364 @@ class AplicadorRegrasReservatoriosNEWAVE(AplicadorRegrasReservatorios):
         178: [172, 176, 178],
     }
 
-    def identifica_regra_ativa(
+    def identify_active_rule(
         self,
-        regras: List[RegraReservatorio],
-        codigo_usina: int,
+        rules: List[ReservoirGroupRule],
+        uheCode: int,
         volumes: pd.DataFrame,
-        estagio: int,
-    ) -> Optional[RegraReservatorio]:
+        stage: int,
+    ) -> Optional[ReservoirGroupRule]:
 
-        codigo_reservatorio = next(
-            r.codigo_reservatorio
-            for r in regras
-            if r.codigo_usina == codigo_usina
+        reservoirCodes = next(
+            r.reservoirCodes for r in rules if r.uheCode == uheCode
         )
-        volume_total = float(
+        totalVolume = float(
             volumes.loc[
-                volumes["Número"].isin(codigo_reservatorio),
-                f"Estágio {estagio}",
+                volumes["Número"].isin(reservoirCodes),
+                f"Estágio {stage}",
             ].sum()
         )
         try:
-            regra = None
-            for r in regras:
+            rule = None
+            for r in rules:
                 if all(
                     [
-                        r.codigo_usina == codigo_usina,
-                        r.volume_minimo
-                        <= float(volume_total)
-                        < r.volume_maximo,
+                        r.uheCode == uheCode,
+                        r.minVolume <= totalVolume < r.maxVolume,
                     ]
                 ):
-                    regra = r
+                    rule = r
                     break
-            if regra is None:
+            if rule is None:
                 raise StopIteration()
         except StopIteration:
             Log.log().warning(
                 "Não foi encontrada regra de operação ativa "
-                + f"para a usina {codigo_usina} "
-                + f"(reservatórios {codigo_reservatorio}) "
-                + f"no volume {float(volume_total)}"
+                + f"para a usina {uheCode} "
+                + f"(reservatórios {reservoirCodes}) "
+                + f"no volume {totalVolume}"
             )
-            regra = None
-        return regra
+            rule = None
+        return rule
 
     def regras_estagios(
         self,
-        regras: List[RegraReservatorio],
-        mapa_estagio_dia: Dict[int, date],
-    ) -> Dict[int, List[RegraReservatorio]]:
-        regras_mapeadas: Dict[int, List[RegraReservatorio]] = {}
-        for estagio, dia_fim in mapa_estagio_dia.items():
-            regras_mapeadas[estagio] = list(
-                set([r for r in regras if r.mes == dia_fim.month])
+        rules: List[ReservoirRule],
+        stageDayMap: Dict[int, datetime],
+    ) -> Dict[int, List[ReservoirRule]]:
+        mappedRules: Dict[int, List[ReservoirRule]] = {}
+        for stage, endDay in stageDayMap.items():
+            mappedRules[stage] = list(
+                set([r for r in rules if r.month == endDay.month])
             )
-        return regras_mapeadas
+        return mappedRules
 
-    def identifica_regras_ativas(
+    def identify_active_rules(
         self,
-        regras: List[RegraReservatorio],
-        volumes_hm3: pd.DataFrame,
-    ) -> Dict[int, List[RegraReservatorio]]:
+        rules: List[ReservoirGroupRule],
+        uheVolumesHm3: pd.DataFrame,
+    ) -> Dict[int, List[ReservoirGroupRule]]:
         # Obtém os volumes
-        regras_ativas_estagios: Dict[int, List[RegraReservatorio]] = {}
-        estagio = int(
-            [c for c in list(volumes_hm3.columns) if "Estágio" in c][-1].split(
-                "Estágio"
-            )[1]
+        activeRulesByStage: Dict[int, List[ReservoirGroupRule]] = {}
+        stage = int(
+            [c for c in list(uheVolumesHm3.columns) if "Estágio" in c][
+                -1
+            ].split("Estágio")[1]
         )
         # Obtém as regras ativas para cada usina
-        usinas_com_restricao = list(set([r.codigo_usina for r in regras]))
-        regras_ativas: List[RegraReservatorio] = []
-        for u in usinas_com_restricao:
-            regra_estagio = self.identifica_regra_ativa(
-                regras, u, volumes_hm3, estagio
+        uhesWithRules = list(set([r.uheCode for r in rules]))
+        activeRules: List[ReservoirGroupRule] = []
+        for u in uhesWithRules:
+            rulesInStage = self.identify_active_rule(
+                rules, u, uheVolumesHm3, stage
             )
-            if regra_estagio is not None:
-                regras_ativas.append(regra_estagio)
-        regras_ativas_estagios[estagio] = regras_ativas
-        return regras_ativas_estagios
+            if rulesInStage is not None:
+                activeRules.append(rulesInStage)
+        activeRulesByStage[stage] = activeRules
+        return activeRulesByStage
 
     def obtem_ghmax_usina(
-        self, codigo: int, qdef: float, hidr: pd.DataFrame
+        self, code: int, qdef: float, hidr: pd.DataFrame
     ) -> float:
-        def aplica_polinomio(coeficientes: List, vol: float) -> float:
-            return sum([c * vol**i for i, c in enumerate(coeficientes)])
+        def apply_poly(coefficients: List, vol: float) -> float:
+            return sum([c * vol**i for i, c in enumerate(coefficients)])
 
         # Localiza os dados de interesse da usina
-        volmin = float(hidr.loc[codigo, "Volume Mínimo"])
-        volmax = float(hidr.loc[codigo, "Volume Máximo"])
+        volmin = hidr.at[code, "Volume Mínimo"]
+        volmax = hidr.at[code, "Volume Máximo"]
         volutil = volmax - volmin
         vol65 = volmin + 0.65 * volutil
-        hjus = float(hidr.loc[codigo, "Canal de Fuga Médio"])
-        hmon = aplica_polinomio(
-            [float(hidr.loc[codigo, f"A{i} CV"]) for i in range(5)], vol65
-        )
-        perdas = float(hidr.loc[codigo, "Perdas"])
-        hliq = hmon - hjus - perdas
-        prod = float(hidr.loc[codigo, "Produtibilidade Específica"])
-        prod_media = prod * hliq
-        return prod_media * qdef
+        hjus = hidr.at[code, "Canal de Fuga Médio"]
+        hmon = apply_poly([hidr.at[code, f"A{i} CV"] for i in range(5)], vol65)
+        losses = hidr.at[code, "Perdas"]
+        hliq = hmon - hjus - losses
+        prod = hidr.at[code, "Produtibilidade Específica"]
+        avg_prod = prod * hliq
+        return avg_prod * qdef
 
-    def aplica_regra_qdef_modif(
+    def apply_qdef_modif_rule(
         self,
-        regra: RegraReservatorio,
+        rule: ReservoirGroupRule,
         modif: Modif,
         hidr: pd.DataFrame,
-        codigo: int = None,
+        confhd: Confhd,
+        dger: DGer,
+        code: int = None,
     ):
-        if codigo is None:
-            codigo = regra.codigo_usina
+        if code is None:
+            code = rule.uheCode
         # Se a regra não tem limite mínimo, ignora
-        if regra.limite_minimo is None:
-            return
+        if rule.minLimit is None:
+            return HTTPResponse(code=200, detail="ignored")
 
-        modif_usina = modif.modificacoes_usina(codigo)
+        modifUhe = modif.modificacoes_usina(code)
         # Se a usina em questão não é modificada, cria uma modificação nova
-        if modif_usina is None:
-            nova_usina = USINA()
-            nova_usina.codigo = codigo
-            nova_usina.nome = str(hidr.loc[codigo, "Nome"])
-            modif.append_registro(nova_usina)
-            Log.log().info(f"Criando novo registro USINA {codigo}")
+        if modifUhe is None:
+            newUhe = USINA()
+            newUhe.codigo = code
+            newUhe.nome = str(hidr.at[code, "Nome"])
+            modif.append_registro(newUhe)
+            Log.log().info(f"Criando novo registro USINA {code}")
+            confhd.usinas.loc[
+                confhd.usinas["Número"] == code, "Modificada"
+            ] = 1
+            Log.log().info(f"Modificando usina {code} no confhd.dat")
         # Obtém o registro que modifica a usina
-        usina: USINA = modif.usina(codigo=codigo)
+        usina: USINA = modif.usina(codigo=code)
 
-        vazmint_existentes = [m for m in modif_usina if isinstance(m, VAZMINT)]
-        vazmin_existentes = [m for m in modif_usina if isinstance(m, VAZMIN)]
+        actualVazminT = [m for m in modifUhe if isinstance(m, VAZMINT)]
+        actualVazmin = [m for m in modifUhe if isinstance(m, VAZMIN)]
         Log.log().info(
-            f"Existem {len(vazmint_existentes)} VAZMINT"
-            + f" para a usina {codigo}"
+            f"Existem {len(actualVazminT)} VAZMINT" + f" para a usina {code}"
         )
         Log.log().info(
-            f"Existem {len(vazmin_existentes)} VAZMIN"
-            + f" para a usina {codigo}"
+            f"Existem {len(actualVazmin)} VAZMIN" + f" para a usina {code}"
         )
         # Guarda a vazão do primeiro VAZMINT que tenha início após os
         # 2 primeiros meses. Se não existir, procura VAZMIN. Por último,
         # procura no HIDR
-        data_caso = date(self._caso.ano, self._caso.mes, 1)
-        ultima_vazao = 0.0
-        if len(vazmint_existentes) > 0:
-            for m in vazmint_existentes:
-                ultima_vazao = m.vazao
-                data_inicio = date(m.ano, m.mes, 1)
-                if data_inicio >= data_caso + relativedelta(months=+2):
+
+        caseDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        )
+        lastFlow = 0.0
+        if len(actualVazminT) > 0:
+            for m in actualVazminT:
+                lastFlow = m.vazao
+                startDate = datetime(year=m.ano, month=m.mes, day=1)
+                if startDate >= caseDate + relativedelta(months=+2):
                     break
-            if ultima_vazao == 0:
-                ultima_vazao = float(hidr.loc[codigo, "Vazão Mínima"])
-        elif len(vazmin_existentes) > 0:
-            ultima_vazao = vazmin_existentes[-1].vazao
+            if lastFlow == 0:
+                lastFlow = float(hidr.loc[code, "Vazão Mínima"])
+        elif len(actualVazmin) > 0:
+            lastFlow = actualVazmin[-1].vazao
         else:
-            ultima_vazao = float(hidr.loc[codigo, "Vazão Mínima"])
-        Log.log().info(f"Última vazão = {ultima_vazao}")
-        for m in vazmint_existentes:
+            lastFlow = hidr.at[code, "Vazão Mínima"]
+        Log.log().info(f"Última vazão = {lastFlow}")
+        for m in actualVazminT:
             # Deleta os VAZMINT que iniciem nos 2 primeiros meses
-            data_inicio = date(m.ano, m.mes, 1)
-            if data_inicio < data_caso + relativedelta(months=+2):
+            startDate = datetime(year=m.ano, month=m.mes, day=1)
+            if startDate < caseDate + relativedelta(months=+2):
                 modif.deleta_registro(m)
         # Cria os VAZMINT
         # - O primeiro é válido para os 2 primeiros meses
-        novo_vazmint = VAZMINT()
-        novo_vazmint.mes = self._caso.mes
-        novo_vazmint.ano = self._caso.ano
-        novo_vazmint.vazao = regra.limite_minimo
+        newVazminT = VAZMINT()
+        newVazminT.mes = dger.mes_inicio_estudo
+        newVazminT.ano = dger.ano_inicio_estudo
+        newVazminT.vazao = rule.minLimit
         Log.log().info(
-            f"Criando VAZMINT = {self._caso.mes}"
-            + f" {self._caso.ano} {regra.limite_minimo}"
+            f"Criando VAZMINT = {dger.mes_inicio_estudo}"
+            + f" {dger.ano_inicio_estudo} {rule.minLimit}"
         )
-        modif.cria_registro(usina, novo_vazmint)
+        modif.cria_registro(usina, newVazminT)
         # - O segundo é para retornar ao valor anterior
-        fim_vazmint = date(
-            year=self._caso.ano, month=self._caso.mes, day=1
+        endDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
         ) + relativedelta(months=+2)
-        prox_vazmint = VAZMINT()
-        prox_vazmint.mes = fim_vazmint.month
-        prox_vazmint.ano = fim_vazmint.year
-        prox_vazmint.vazao = ultima_vazao
+        nextVazminT = VAZMINT()
+        nextVazminT.mes = endDate.month
+        nextVazminT.ano = endDate.year
+        nextVazminT.vazao = lastFlow
         Log.log().info(
-            f"Criando VAZMINT = {fim_vazmint.month}"
-            + f" {fim_vazmint.year} {ultima_vazao}"
+            f"Criando VAZMINT = {endDate.month}"
+            + f" {endDate.year} {lastFlow}"
         )
-        modif.cria_registro(novo_vazmint, prox_vazmint)
+        modif.cria_registro(newVazminT, nextVazminT)
+        return HTTPResponse(code=200, detail="success")
 
-    def aplica_regra_qdef_re(
+    def apply_qdef_re_rule(
         self,
-        regra: RegraReservatorio,
+        rule: ReservoirGroupRule,
         re: RE,
         hidr: pd.DataFrame,
-        codigo: int = None,
+        dger: DGer,
+        code: int = None,
     ):
-        if codigo is None:
-            codigo = regra.codigo_usina
+        if code is None:
+            code = rule.uheCode
         # Se não existe um conjunto com a usina em questão, cria.
-        cols_usinas = [f"Usina {i}" for i in range(1, 11)]
-        df_conjuntos = re.usinas_conjuntos
-        conjuntos = list(df_conjuntos["Conjunto"].unique())
-        if codigo not in df_conjuntos[cols_usinas].to_numpy():
-            Log.log().info(f"Criando conjunto com usina {codigo}")
-            num_conjunto = max(conjuntos) + 1
-            novo_conjunto = {
-                **{"Conjunto": [num_conjunto]},
-                **{c: [0] for c in cols_usinas},
+        uheColumns = [f"Usina {i}" for i in range(1, 11)]
+        setDfs = re.usinas_conjuntos
+        sets = list(setDfs["Conjunto"].unique())
+        if code not in setDfs[uheColumns].to_numpy():
+            Log.log().info(f"Criando conjunto com usina {code}")
+            setNumber = max(sets) + 1
+            newSet = {
+                **{"Conjunto": [setNumber]},
+                **{c: [0] for c in uheColumns},
             }
-            novo_conjunto["Usina 1"] = [codigo]
-            re.usinas_conjuntos = df_conjuntos.append(
-                pd.DataFrame(data=novo_conjunto), ignore_index=True
+            newSet["Usina 1"] = [code]
+            re.usinas_conjuntos = pd.concat(
+                [setDfs, pd.DataFrame(data=newSet)],
+                ignore_index=True,
             )
-            df_conjuntos = re.usinas_conjuntos
+            setDfs = re.usinas_conjuntos
         # Senão, identifica.
-        num_conjunto = next(
-            int(linha["Conjunto"])
-            for _, linha in df_conjuntos.iterrows()
-            if codigo in linha[cols_usinas].to_numpy()
+        setNumber = next(
+            int(row["Conjunto"])
+            for _, row in setDfs.iterrows()
+            if code in row[uheColumns].to_numpy()
         )
         # Cria as restrições para o conjunto em questão, nos 2 primeiros
         # meses do horizonte
-        mes_inicial = date(year=self._caso.ano, month=self._caso.mes, day=1)
-        mes_final = mes_inicial + relativedelta(months=+1)
+        startDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        )
+        endDate = startDate + relativedelta(months=+1)
         # Deleta as restrições do conjunto em questão, se existirem e começarem
         # em algum dos 2 primeiros meses
-        restricoes = re.restricoes
-        indices_restricoes = restricoes.loc[
-            (restricoes["Conjunto"] == num_conjunto)
+        constraints = re.restricoes
+        constraintsIndices = constraints.loc[
+            (constraints["Conjunto"] == setNumber)
             & (
-                (restricoes["Mês Início"] == mes_inicial.month)
-                | (restricoes["Mês Início"] == mes_final.month)
+                (constraints["Mês Início"] == startDate.month)
+                | (constraints["Mês Início"] == endDate.month)
             )
             & (
-                (restricoes["Ano Início"] == mes_inicial.year)
-                | (restricoes["Ano Início"] == mes_final.year)
+                (constraints["Ano Início"] == startDate.year)
+                | (constraints["Ano Início"] == endDate.year)
             ),
             :,
         ].index
-        restricoes = restricoes.drop(index=indices_restricoes)
+        constraints = constraints.drop(index=constraintsIndices)
 
         # Se a regra não tem limite máximo, ignora
-        qdef = regra.limite_maximo
+        qdef = rule.maxLimit
         if qdef is None:
-            return
+            return HTTPResponse(code=200, detail="ignored")
         nova_restricao = {
-            "Conjunto": [num_conjunto],
-            "Mês Início": [mes_inicial.month],
-            "Ano Início": [mes_inicial.year],
-            "Mês Fim": [mes_final.month],
-            "Ano Fim": [mes_final.year],
+            "Conjunto": [setNumber],
+            "Mês Início": [startDate.month],
+            "Ano Início": [startDate.year],
+            "Mês Fim": [endDate.month],
+            "Ano Fim": [endDate.year],
             "Flag P": [0],
-            "Restrição": [self.obtem_ghmax_usina(codigo, qdef, hidr)],
+            "Restrição": [self.obtem_ghmax_usina(code, qdef, hidr)],
             "Motivo": ["REGRA ANA"],
         }
-        re.restricoes = restricoes.append(
-            pd.DataFrame(data=nova_restricao), ignore_index=True
+        re.restricoes = pd.concat(
+            [constraints, pd.DataFrame(data=nova_restricao)], ignore_index=True
         )
+        return HTTPResponse(code=200, detail="success")
 
-    def aplica_regra(
+    def apply_rule(
         self,
-        regra: RegraReservatorio,
+        rule: ReservoirRule,
         hidr: pd.DataFrame,
         modif: Modif,
         re: RE,
-    ) -> bool:
-        if regra.tipo_restricao == "QDEF":
-            Log.log().info(
-                f"Aplicando regra: {str(regra)} no mês {self._caso.mes}"
-            )
+        confhd: Confhd,
+        dger: DGer,
+    ) -> HTTPResponse:
+        if rule.constraintType == "QDEF":
+            Log.log().info(f"Aplicando regra: {str(rule)}")
             # No caso de existirem, aplica também nas fictícias
             # Aplica a restrição da defluência mínima, se houver,
             # no modif.dat
-            mapa_modif = (
-                AplicadorRegrasReservatoriosNEWAVE.MAPA_FICTICIAS_MODIF
-            )
-            if regra.limite_minimo is not None:
-                if regra.codigo_usina in mapa_modif.keys():
-                    for codigo in mapa_modif[regra.codigo_usina]:
-                        self.aplica_regra_qdef_modif(
-                            regra, modif, hidr, codigo=codigo
+            modifMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_MODIF
+            if rule.minLimit is not None:
+                if rule.uheCode in modifMap.keys():
+                    for code in modifMap[rule.uheCode]:
+                        res = self.apply_qdef_modif_rule(
+                            rule, modif, hidr, confhd, dger, code=code
                         )
+                        if res.code != 200:
+                            return res
                 else:
-                    self.aplica_regra_qdef_modif(regra, modif, hidr)
+                    res = self.apply_qdef_modif_rule(
+                        rule, modif, hidr, confhd, dger
+                    )
+                    if res.code != 200:
+                        return res
             # Aplica a restrição da defluência máxima, se houver,
             # no re.dat
-            mapa_re = AplicadorRegrasReservatoriosNEWAVE.MAPA_FICTICIAS_RE
-            if regra.limite_maximo is not None:
-                if regra.codigo_usina in mapa_re.keys():
-                    for codigo in mapa_re[regra.codigo_usina]:
-                        self.aplica_regra_qdef_re(
-                            regra, re, hidr, codigo=codigo
+            mapa_re = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_RE
+            if rule.maxLimit is not None:
+                if rule.uheCode in mapa_re.keys():
+                    for code in mapa_re[rule.uheCode]:
+                        res = self.apply_qdef_re_rule(
+                            rule, re, hidr, dger, code=code
                         )
+                        if res.code != 200:
+                            return res
                 else:
-                    self.aplica_regra_qdef_re(regra, re, hidr)
-        return True
+                    res = self.apply_qdef_re_rule(rule, re, hidr, dger)
+                    if res.code != 200:
+                        return res
+        return HTTPResponse(code=200, detail="success")
 
-    def aplica_regras(
+    async def apply(
         self,
-        casos_anteriores: List[Caso],
-        regras_operacao: List[RegraReservatorio],
-    ) -> bool:
+        rules: List[ReservoirRule],
+        sources_uow: List[AbstractUnitOfWork],
+        destination_uow: AbstractUnitOfWork,
+    ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
         # Obtém o último DECOMP executado no mês anterior
-        try:
-            mes_anterior = 12 if self._caso.mes == 1 else self._caso.mes - 1
-            ultimo_decomp = next(
-                c
-                for c in reversed(casos_anteriores)
-                if c.programa == Programa.DECOMP and c.mes == mes_anterior
-            )
-        except StopIteration:
-            Log.log().info(
-                f"Caso {self._caso.nome} não possui DECOMP anterior. "
+        with destination_uow:
+            dger = await destination_uow.files.get_dger()
+        if isinstance(dger, HTTPResponse):
+            return dger
+
+        right_source_uow = None
+        newaveMonth = dger.mes_inicio_estudo
+        previousMonth = 12 if newaveMonth == 11 else newaveMonth - 1
+        for s in reversed(sources_uow):
+            with s:
+                dadger = await s.files.get_dadger()
+                if isinstance(dadger, HTTPResponse):
+                    return dadger
+                # PREMISSA: a data do registro DT + 6 dias sempre
+                # tem o mês do caso.
+                decompDate = datetime(
+                    year=dadger.dt.ano,
+                    month=dadger.dt.mes,
+                    day=dadger.dt.dia,
+                )
+                decompActualMonth = (decompDate + timedelta(days=6)).month
+                if decompActualMonth == previousMonth:
+                    right_source_uow = s
+
+        if right_source_uow is None:
+            msg = (
+                "Caso não possui DECOMP anterior. "
                 + "Não serão aplicadas regras operativas de reservatórios."
             )
-            return True
+            Log.log().info(msg)
+            return HTTPResponse(code=404, detail=msg)
 
-        dc_uow = dc_uow_factory("FS", ultimo_decomp.caminho)
-        with dc_uow:
-            relato = dc_uow.decomp.get_relato()
+        with right_source_uow:
+            relato = right_source_uow.files.get_relato()
+        if isinstance(relato, HTTPResponse):
+            return relato
 
         # Filtra as regras de operação para o mês do caso
-        regras_mes = self.regras_mes(regras_operacao, self._caso.mes)
+        regras_mes = self.regras_mes(rules, newaveMonth)
 
-        nw_uow = nw_uow_factory("FS", self._caso.caminho)
-        with nw_uow:
-            cadastro_hidr = nw_uow.newave.get_hidr().cadastro
+        with destination_uow:
+            hidr = destination_uow.files.get_hidr()
+        if isinstance(hidr, HTTPResponse):
+            return hidr
+        cadastro_hidr = hidr.cadastro
 
         # Converte as regras para hm3
         regras_hm3 = [
@@ -942,153 +508,156 @@ class AplicadorRegrasReservatoriosNEWAVE(AplicadorRegrasReservatorios):
             relato.volume_util_reservatorios, cadastro_hidr
         )
         # Identifica as regras ativas
-        regras_ativas = self.identifica_regras_ativas(
+        regras_ativas = self.identify_active_rules(
             regras_agrupadas, volumes_relato_hm3
         )
 
-        sucessos: List[bool] = []
         # Para o NEWAVE, são sempre tomadas as regras vigentes para os
         # volumes do últimos estágio semanal do último DECOMP do mês anterior
         estagio = sorted(list(regras_ativas.keys()))[-1]
-        with nw_uow:
-            modif = nw_uow.newave.get_modif()
-            re = nw_uow.newave.get_modif()
-            for r in regras_ativas[estagio]:
-                sucessos.append(self.aplica_regra(r, cadastro_hidr, modif, re))
-            nw_uow.newave.set_modif(modif)
-            nw_uow.newave.set_re(re)
-        return all(sucessos)
+        with destination_uow:
+            modif = destination_uow.files.get_modif()
+            re = destination_uow.files.get_re()
+            confhd = destination_uow.files.get_confhd()
+        if isinstance(modif, HTTPResponse):
+            return modif
+        if isinstance(re, HTTPResponse):
+            return re
+        if isinstance(confhd, HTTPResponse):
+            return confhd
+        for r in regras_ativas[estagio]:
+            self.apply_rule(r, cadastro_hidr, modif, re, confhd, dger)
+        with destination_uow:
+            res = destination_uow.files.set_modif(modif)
+            if res.code != 200:
+                return res
+            res = destination_uow.files.set_re(re)
+            if res.code != 200:
+                return res
+            res = destination_uow.files.set_confhd(confhd)
+            if res.code != 200:
+                return res
+        return regras_ativas[estagio]
 
 
-class AplicadorRegrasReservatoriosDECOMP(AplicadorRegrasReservatorios):
-    def __init__(self, caso: Caso) -> None:
-        super().__init__(caso)
+class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
+    """ """
 
     # Override
     def identifica_regra_ativa(
         self,
-        regras: List[RegraReservatorio],
-        codigo_usina: int,
+        rules: List[ReservoirGroupRule],
+        uheCode: int,
         volumes: pd.DataFrame,
         estagio: int,
-    ) -> Optional[RegraReservatorio]:
-        codigos_reservatorios = next(
-            r.codigo_reservatorio
-            for r in regras
-            if r.codigo_usina == codigo_usina
+    ) -> Optional[ReservoirGroupRule]:
+        reservoirCodes = next(
+            r.reservoirCodes for r in rules if r.uheCode == uheCode
         )
-        volume_total = float(
+        totalVolume = float(
             volumes.loc[
-                volumes["Número"].isin(codigos_reservatorios),
+                volumes["Número"].isin(reservoirCodes),
                 f"Estágio {estagio}",
             ].sum()
         )
         try:
-            regra = None
-            for r in regras:
+            rule = None
+            for r in rules:
                 if all(
                     [
-                        r.codigo_usina == codigo_usina,
-                        r.volume_minimo
-                        <= float(volume_total)
-                        < r.volume_maximo,
+                        r.uheCode == uheCode,
+                        r.minVolume <= totalVolume < r.maxVolume,
                     ]
                 ):
-                    regra = r
+                    rule = r
                     break
-            if regra is None:
+            if rule is None:
                 raise StopIteration()
         except StopIteration:
             Log.log().warning(
                 "Não foi encontrada regra de operação ativa "
-                + f"para a usina {codigo_usina} "
-                + f"(reservatórios {codigos_reservatorios}) "
-                + f"no volume {float(volume_total)}"
+                + f"para a usina {uheCode} "
+                + f"(reservatórios {reservoirCodes}) "
+                + f"no volume {totalVolume}"
             )
-            regra = None
-        return regra
+            rule = None
+        return rule
 
     def identifica_regras_ativas(
         self,
-        regras: Dict[int, List[RegraReservatorio]],
-        volumes_hm3: pd.DataFrame,
-    ) -> Dict[int, List[RegraReservatorio]]:
-        # Obtém os volumes
-
-        regras_ativas_estagios: Dict[int, List[RegraReservatorio]] = {}
+        rules: Dict[int, List[ReservoirGroupRule]],
+        uheVolumesHm3: pd.DataFrame,
+    ) -> Dict[int, List[ReservoirGroupRule]]:
+        activeRulesByStage: Dict[int, List[ReservoirGroupRule]] = {}
         # Obtém as regras ativas para cada usina
-        for estagio, regras_estagio in regras.items():
-            usinas_com_restricao = list(
-                set([r.codigo_usina for r in regras_estagio])
-            )
-            regras_ativas: List[RegraReservatorio] = []
-            for u in usinas_com_restricao:
-                regra_estagio = self.identifica_regra_ativa(
-                    regras[estagio], u, volumes_hm3, estagio
+        for stage, rulesInStage in rules.items():
+            uhesWithRules = list(set([r.uheCode for r in rulesInStage]))
+            activeRules: List[ReservoirGroupRule] = []
+            for u in uhesWithRules:
+                stageRule = self.identifica_regra_ativa(
+                    rules[stage], u, uheVolumesHm3, stage
                 )
-                if regra_estagio is not None:
-                    regras_ativas.append(regra_estagio)
-            regras_ativas_estagios[estagio] = regras_ativas
-        return regras_ativas_estagios
+                if stageRule is not None:
+                    activeRules.append(stageRule)
+            activeRulesByStage[stage] = activeRules
+        return activeRulesByStage
 
     def aplica_regra(
         self,
         dadger: Dadger,
-        regra: RegraReservatorio,
-        estagio_aplicacao: int,
+        rule: ReservoirGroupRule,
+        applicationStage: int,
     ) -> bool:
         def aplica_regra_qdef(
-            regra: RegraReservatorio, dadger: Dadger, estagio: int
+            rule: ReservoirGroupRule, dadger: Dadger, estagio: int
         ):
             # Se vai aplicar uma regra em um determinado estágio
             # acessa a restrição em todos os estágios futuros, até
-            # o limite, para garantir os valore serão mantidos.
+            # o limite, para garantir que os valores serão mantidos.
             cqs: List[CQ] = dadger.cq()
             if isinstance(cqs, CQ):
                 cqs = [cqs]
             if isinstance(cqs, list):
-                cqs_usina = [c for c in cqs if c.uhe == regra.codigo_usina]
+                cqs_usina = [c for c in cqs if c.uhe == rule.uheCode]
                 if len(cqs_usina) > 0:
                     codigos_restricoes = [cq.restricao for cq in cqs_usina]
                 else:
                     codigos_restricoes = [cqs[-1].restricao + 1]
                     cqs_usinas = [CQ()]
-                    cqs_usinas[0].restricao = [
-                        codigos_restricoes[0],
-                        1,
-                        regra.codigo_usina,
-                        1.0,
-                        regra.tipo_restricao,
-                    ]
+                    cqs_usinas[0].restricao = cqs[-1].restricao + 1
+                    cqs_usinas[0].estagio = 1
+                    cqs_usinas[0].uhe = rule.uheCode
+                    cqs_usinas[0].coeficiente = 1
+                    cqs_usinas[0].tipo = rule.constraintType
                 efs = [
                     dadger.hq(codigo=codigo).estagio_final
                     for codigo in codigos_restricoes
                 ]
-            else:
-                for cq_usina, codigo in zip(cqs_usina, codigos_restricoes):
-                    # Se não existe o registro HQ, cria, junto com um LQ
-                    registros_dp = dadger.lista_registros(DP)
-                    num_subsistemas = len(dadger.lista_registros(SB))
-                    ef = int(len(registros_dp) / num_subsistemas)
-                    Log.log().info(f"Criando HQ {codigo} - 1 {ef}")
-                    hq_novo = HQ()
-                    hq_novo._dados = [codigo, 1, ef]
-                    lq_novo = LQ()
-                    lq_novo._dados = [codigo, 1] + [
-                        0,
-                        99999,
-                        0,
-                        99999,
-                        0,
-                        99999,
-                    ]
-                    dadger.cria_registro(dadger.ev, hq_novo)
-                    dadger.cria_registro(hq_novo, lq_novo)
-                    dadger.cria_registro(lq_novo, cq_usina)
-                efs = [
-                    dadger.hq(codigo).estagio_final
-                    for codigo in codigos_restricoes
-                ]
+            # else:
+            #     for cq_usina, codigo in zip(cqs_usina, codigos_restricoes):
+            #         # Se não existe o registro HQ, cria, junto com um LQ
+            #         registros_dp = dadger.lista_registros(DP)
+            #         num_subsistemas = len(dadger.lista_registros(SB))
+            #         ef = int(len(registros_dp) / num_subsistemas)
+            #         Log.log().info(f"Criando HQ {codigo} - 1 {ef}")
+            #         hq_novo = HQ()
+            #         hq_novo._dados = [codigo, 1, ef]
+            #         lq_novo = LQ()
+            #         lq_novo._dados = [codigo, 1] + [
+            #             0,
+            #             99999,
+            #             0,
+            #             99999,
+            #             0,
+            #             99999,
+            #         ]
+            #         dadger.cria_registro(dadger.ev, hq_novo)
+            #         dadger.cria_registro(hq_novo, lq_novo)
+            #         dadger.cria_registro(lq_novo, cq_usina)
+            #     efs = [
+            #         dadger.hq(codigo).estagio_final
+            #         for codigo in codigos_restricoes
+            #     ]
 
             for cq_usina, codigo, ef in zip(
                 cqs_usina, codigos_restricoes, efs
@@ -1096,30 +665,30 @@ class AplicadorRegrasReservatoriosDECOMP(AplicadorRegrasReservatorios):
                 for e in range(estagio, ef + 1):
                     dadger.lq(codigo, e)
                 # Aplica a regra no estágio devido, se tiver limites inf/sup
-                if regra.limite_minimo is not None:
+                if rule.minLimit is not None:
                     dadger.lq(codigo, estagio).limites_inferiores = [
-                        regra.limite_minimo
+                        rule.minLimit
                     ] * 3
-                if regra.limite_maximo is not None:
+                if rule.maxLimit is not None:
                     dadger.lq(codigo, estagio).limites_superiores = [
-                        regra.limite_maximo
+                        rule.maxLimit
                     ] * 3
 
         Log.log().info(
-            f"Aplicando regra: {str(regra)} no estágio {estagio_aplicacao}"
+            f"Aplicando regra: {str(rule)} no estágio {applicationStage}"
         )
         # Se ocorrer algum erro, retorna False
-        if regra.tipo_restricao == "QDEF":
-            aplica_regra_qdef(regra, dadger, estagio_aplicacao)
+        if rule.constraintType == "QDEF":
+            aplica_regra_qdef(rule, dadger, applicationStage)
         else:
             return False
         return True
 
     def mapeia_semanas_dias_fim(
         self, dadger: Dadger, relato: Relato, delta_inicial: int = 0
-    ) -> Dict[int, date]:
+    ) -> Dict[int, datetime]:
         dt = dadger.dt
-        dia_inicio_caso_atual = date(dt.ano, dt.mes, dt.dia)
+        dia_inicio_caso_atual = datetime(year=dt.ano, month=dt.mes, day=dt.dia)
         num_semanas_caso_anterior = (
             len(relato.volume_util_reservatorios.columns) - 3
         )
@@ -1133,19 +702,19 @@ class AplicadorRegrasReservatoriosDECOMP(AplicadorRegrasReservatorios):
 
     def regras_estagios(
         self,
-        regras: List[RegraReservatorio],
-        mapa_estagio_dia: Dict[int, date],
-    ) -> Dict[int, List[RegraReservatorio]]:
-        regras_mapeadas: Dict[int, List[RegraReservatorio]] = {}
-        for estagio, dia_fim in mapa_estagio_dia.items():
-            regras_mapeadas[estagio] = list(
-                set([r for r in regras if r.mes == dia_fim.month])
+        rules: List[ReservoirRule],
+        stageDayMap: Dict[int, datetime],
+    ) -> Dict[int, List[ReservoirRule]]:
+        mappedRules: Dict[int, List[ReservoirRule]] = {}
+        for stage, endDate in stageDayMap.items():
+            mappedRules[stage] = list(
+                set([r for r in rules if r.month == endDate.month])
             )
-        return regras_mapeadas
+        return mappedRules
 
     def aplica_regras_caso(
         self,
-        regras_operacao: List[RegraReservatorio],
+        regras_operacao: List[ReservoirRule],
         dadger: Dadger,
         relato: Relato,
         gap_semanas: int = 0,
@@ -1190,69 +759,182 @@ class AplicadorRegrasReservatoriosDECOMP(AplicadorRegrasReservatorios):
 
         return all(sucessos)
 
-    def aplica_regras(
+    def aplica_regras_caso(
         self,
-        casos_anteriores: List[Caso],
-        regras_operacao: List[RegraReservatorio],
-    ) -> bool:
-        regras_semanais = list(
-            set([r for r in regras_operacao if r.periodicidade == "S"])
+        rules: List[ReservoirRule],
+        dadger: Dadger,
+        relato: Relato,
+        hidr: pd.DataFrame,
+        weekGap: int = 0,
+        monthly: bool = False,
+    ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
+
+        # Identifica o dia de fim de cada semana do DECOMP anterior
+        endDayMaps = self.mapeia_semanas_dias_fim(dadger, relato, weekGap)
+        # Se está falando de regras mensais, não consulta semana a semana
+        if monthly:
+            decompDate = datetime(
+                year=dadger.dt.ano,
+                month=dadger.dt.mes,
+                day=dadger.dt.dia,
+            )
+            decompActualDate = decompDate + timedelta(days=6)
+            endDayMaps = {
+                1: datetime(
+                    year=decompActualDate.year,
+                    month=decompActualDate.month,
+                    day=1,
+                )
+            }
+        Log.log().info(
+            f"Dias de fim dos estágios do DECOMP anterior: {endDayMaps}"
         )
-        dc_uow = dc_uow_factory("FS", self._caso.caminho)
-        with dc_uow:
-            dadger_caso = dc_uow.decomp.get_dadger()
-        try:
-            ultimo_decomp = next(
-                c
-                for c in reversed(casos_anteriores)
-                if c.programa == Programa.DECOMP
-            )
-            ultimo_dc_uow = dc_uow_factory("FS", ultimo_decomp.caminho)
-            with ultimo_dc_uow:
-                relato_ultimo_dc = ultimo_dc_uow.decomp.get_relato()
-            self.aplica_regras_caso(
-                regras_semanais, dadger_caso, relato_ultimo_dc
-            )
-        except StopIteration:
+
+        # Filtra as regras de operação para cada estágio
+        # do DECOMP anterior
+        stageRules = self.regras_estagios(rules, endDayMaps)
+
+        # Converte as regras para hm3
+        rulesHm3: Dict[int, List[ReservoirRule]] = {
+            e: [self.converte_regra_hm3(r, hidr) for r in rules]
+            for e, rules in stageRules.items()
+        }
+
+        # Agrupa regras por usina com defluência limitada
+        regras_agrupadas: Dict[int, List[ReservoirGroupRule]] = {
+            e: self.agrupa_usinas_defluencia(regras)
+            for e, regras in rulesHm3.items()
+        }
+
+        volumes_relato_hm3 = self.converte_volumes_relato_hm3(
+            relato.volume_util_reservatorios, hidr
+        )
+
+        # Identifica as regras ativas
+        activeRules = self.identifica_regras_ativas(
+            regras_agrupadas, volumes_relato_hm3
+        )
+
+        # Aplica as regras ativas
+        DPregisters = dadger.lista_registros(DP)
+        subsystemCount = len(dadger.lista_registros(SB))
+        num_estagios = int(len(DPregisters) / subsystemCount)
+        currentDecompStages = list(range(1, num_estagios + 1))
+        appliedRules: List[ReservoirGroupRule] = []
+        for estagio in currentDecompStages:
             Log.log().info(
-                f"Caso {self._caso.nome} não possui DECOMP anterior. "
+                f"Aplicando regras de reservatórios no estágio {estagio}"
+            )
+            if estagio not in activeRules.keys():
+                applicationStage = sorted(list(activeRules.keys()))[-1]
+            else:
+                applicationStage = estagio
+            for r in activeRules[applicationStage]:
+                if self.aplica_regra(dadger, r, estagio):
+                    appliedRules.append(appliedRules)
+                else:
+                    return HTTPResponse(
+                        code=500, detail=f"error applying rule {str(r)}"
+                    )
+
+        return appliedRules
+
+    async def apply(
+        self,
+        rules: List[ReservoirRule],
+        sources_uow: List[AbstractUnitOfWork],
+        destination_uow: AbstractUnitOfWork,
+    ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
+
+        # Obtém o último DECOMP executado
+        with destination_uow:
+            currentDadger = await destination_uow.files.get_dadger()
+        if isinstance(currentDadger, HTTPResponse):
+            return currentDadger
+
+        weeklyRules = list(set([r for r in rules if r.frequency == "S"]))
+        decompSources = [s for s in sources_uow if s.program == Program.DECOMP]
+        if len(decompSources) == 0:
+            msg = (
+                "Caso não possui DECOMP anterior. "
                 + "Não serão aplicadas regras operativas de reservatórios "
                 + "com periodicidade semanal."
             )
+            Log.log().info(msg)
+            return HTTPResponse(code=404, detail=msg)
+        lastDecompSource = decompSources[-1]
+        with lastDecompSource:
+            relato = lastDecompSource.files.get_relato()
+        if isinstance(relato, HTTPResponse):
+            return relato
 
-        try:
-            mes_anterior = 12 if self._caso.mes == 1 else self._caso.mes - 1
-            ultimo_decomp_mes_anterior = next(
-                c
-                for c in reversed(casos_anteriores)
-                if c.programa == Programa.DECOMP and c.mes == mes_anterior
-            )
-            regras_mensais = list(
-                set([r for r in regras_operacao if r.periodicidade == "M"])
-            )
-            gap_semanas = (
-                len(casos_anteriores)
-                - casos_anteriores.index(ultimo_decomp_mes_anterior)
-                - 2
-            )
-            self.aplica_regras_caso(
-                regras_mensais,
-                dadger_caso,
-                relato_ultimo_dc,
-                gap_semanas,
-                True,
-            )
-        except StopIteration:
-            Log.log().info(
-                f"Caso {self._caso.nome} não possui DECOMP no mês anterior. "
+        weeklyResult = self.aplica_regras_caso(
+            weeklyRules, currentDadger, relato
+        )
+        if isinstance(weeklyResult, HTTPResponse):
+            return weeklyResult
+
+        currentDecompDate = datetime(
+            year=currentDadger.dt.ano,
+            month=currentDadger.dt.mes,
+            day=currentDadger.dt.dia,
+        )
+        currentDecompActualMonth = (
+            currentDecompDate + timedelta(days=6)
+        ).month
+        previousMonth = (
+            12
+            if currentDecompActualMonth == 11
+            else currentDecompActualMonth - 1
+        )
+        right_source_uow = None
+        for s in reversed(decompSources):
+            with s:
+                dadger = await s.files.get_dadger()
+                if isinstance(dadger, HTTPResponse):
+                    return dadger
+                # PREMISSA: a data do registro DT + 6 dias sempre
+                # tem o mês do caso.
+                decompDate = datetime(
+                    year=dadger.dt.ano,
+                    month=dadger.dt.mes,
+                    day=dadger.dt.dia,
+                )
+                decompActualMonth = (decompDate + timedelta(days=6)).month
+                if decompActualMonth == previousMonth:
+                    right_source_uow = s
+
+        if right_source_uow is None:
+            msg = (
+                "Caso não possui DECOMP anterior. "
                 + "Não serão aplicadas regras operativas de reservatórios "
                 + "com periodicidade mensal."
             )
+            Log.log().info(msg)
+            return HTTPResponse(code=404, detail=msg)
 
-        with dc_uow:
-            dc_uow.decomp.set_dadger(dadger_caso)
+        monthlyRules = list(set([r for r in rules if r.frequency == "M"]))
+        weekGap = len(sources_uow) - sources_uow.index(right_source_uow) - 2
 
-        return True
+        with right_source_uow:
+            relato = right_source_uow.files.get_relato()
+        if isinstance(relato, HTTPResponse):
+            return relato
+
+        monthlyResult = self.aplica_regras_caso(
+            monthlyRules,
+            currentDadger,
+            relato,
+            weekGap,
+            True,
+        )
+        if isinstance(monthlyResult, HTTPResponse):
+            return monthlyResult
+
+        with destination_uow:
+            destination_uow.files.set_dadger(currentDadger)
+
+        return weeklyResult + monthlyResult
 
 
 SUPPORTED_PROGRAMS: Dict[Program, AbstractReservoirRuleRepository] = {

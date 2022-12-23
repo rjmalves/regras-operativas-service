@@ -9,6 +9,8 @@ from inewave.newave.confhd import Confhd
 from inewave.newave.eafpast import EafPast
 from inewave.newave.adterm import AdTerm
 from inewave.newave.term import Term
+from inewave.newave.modif import Modif
+from inewave.newave.re import RE
 from inewave.newave.pmo import PMO
 
 from app.internal.settings import Settings
@@ -24,7 +26,7 @@ class AbstractNewaveRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_dger(self) -> Union[DGer, HTTPResponse]:
+    async def get_dger(self) -> Union[DGer, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
@@ -68,6 +70,22 @@ class AbstractNewaveRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_modif(self) -> Union[Modif, HTTPResponse]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_modif(self, d: Modif) -> HTTPResponse:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_re(self) -> Union[RE, HTTPResponse]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_re(self, d: RE) -> HTTPResponse:
+        raise NotImplementedError
+
+    @abstractmethod
     def get_pmo(self) -> Union[PMO, HTTPResponse]:
         raise NotImplementedError
 
@@ -92,6 +110,10 @@ class RawNewaveRepository(AbstractNewaveRepository):
         self.__read_adterm = False
         self.__term: Optional[Term] = None
         self.__read_term = False
+        self.__modif: Optional[Modif] = None
+        self.__read_modif = False
+        self.__re: Optional[RE] = None
+        self.__read_re = False
         self.__pmo: Optional[PMO] = None
         self.__read_pmo = False
 
@@ -246,6 +268,52 @@ class RawNewaveRepository(AbstractNewaveRepository):
     def set_term(self, d: Term):
         try:
             d.escreve_arquivo(self.__path, self.arquivos.term)
+            return HTTPResponse(code=200, detail="")
+        except Exception as e:
+            return HTTPResponse(code=500, detail=str(e))
+
+    def get_modif(self) -> Union[Modif, HTTPResponse]:
+        if self.__read_modif is False:
+            self.__read_modif = True
+            try:
+                Log.log().info(f"Lendo arquivo {self.arquivos.modif}")
+                self.__modif = Modif.le_arquivo(
+                    self.__path, self.arquivos.modif
+                )
+            except FileNotFoundError as e:
+                msg = f"Não foi encontrado o arquivo {self.arquivos.modif}"
+                return HTTPResponse(code=404, detail=msg)
+            except Exception as e:
+                Log.log().error(
+                    f"Erro na leitura do {self.arquivos.modif}: {e}"
+                )
+                return HTTPResponse(code=500, detail=str(e))
+        return self.__modif
+
+    def set_modif(self, d: Modif):
+        try:
+            d.escreve_arquivo(self.__path, self.arquivos.modif)
+            return HTTPResponse(code=200, detail="")
+        except Exception as e:
+            return HTTPResponse(code=500, detail=str(e))
+
+    def get_re(self) -> Union[RE, HTTPResponse]:
+        if self.__read_re is False:
+            self.__read_re = True
+            try:
+                Log.log().info(f"Lendo arquivo {self.arquivos.re}")
+                self.__re = RE.le_arquivo(self.__path, self.arquivos.re)
+            except FileNotFoundError as e:
+                msg = f"Não foi encontrado o arquivo {self.arquivos.re}"
+                return HTTPResponse(code=404, detail=msg)
+            except Exception as e:
+                Log.log().error(f"Erro na leitura do {self.arquivos.re}: {e}")
+                return HTTPResponse(code=500, detail=str(e))
+        return self.__re
+
+    def set_re(self, d: RE):
+        try:
+            d.escreve_arquivo(self.__path, self.arquivos.re)
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
