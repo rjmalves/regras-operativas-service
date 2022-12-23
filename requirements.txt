@@ -1,0 +1,9 @@
+python-dotenv
+fastapi[all]
+pyarrow
+requests
+aiohttp
+inewave
+idecomp
+pandas
+pybase62
