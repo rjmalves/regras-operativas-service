@@ -14,8 +14,8 @@ class ReservoirRule(BaseModel):
     month: int
     minVolume: float
     maxVolume: float
-    minLimit: float
-    maxLimit: float
+    minLimit: Optional[float]
+    maxLimit: Optional[float]
     frequency: str
     label: Optional[str]
 

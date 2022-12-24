@@ -45,6 +45,36 @@ class AbstractReservoirRuleRepository:
         convertedRule.maxVolume = vmin + vutil * rule.maxVolume / 100.0
         return convertedRule
 
+    def converte_regra_equiv_percent(
+        self, rule: ReservoirGroupRule, uheTable: pd.DataFrame
+    ) -> ReservoirGroupRule:
+        convertedRule = ReservoirGroupRule(
+            reservoirCodes=rule.reservoirCodes,
+            uheCode=rule.uheCode,
+            constraintType=rule.constraintType,
+            month=rule.month,
+            minLimit=rule.minLimit,
+            maxLimit=rule.maxLimit,
+            minVolume=0.0,
+            maxVolume=0.0,
+            frequency=rule.frequency,
+            label=rule.label,
+        )
+        vmin = 0.0
+        vmax = 0.0
+        for code in rule.reservoirCodes:
+            vmin += uheTable.at[code, "Volume Mínimo"]
+            vmax += uheTable.at[code, "Volume Máximo"]
+
+        vutil = vmax - vmin
+        convertedRule.minVolume = round(
+            100 * (rule.minVolume - vmin) / vutil, 2
+        )
+        convertedRule.maxVolume = round(
+            100 * (rule.maxVolume - vmin) / vutil, 2
+        )
+        return convertedRule
+
     def converte_volumes_relato_hm3(
         self, resultTable: pd.DataFrame, uheTable: pd.DataFrame
     ):
@@ -515,6 +545,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Para o NEWAVE, são sempre tomadas as regras vigentes para os
         # volumes do últimos estágio semanal do último DECOMP do mês anterior
         estagio = sorted(list(regras_ativas.keys()))[-1]
+        appliedRules: List[ReservoirGroupRule] = []
         with destination_uow:
             modif = destination_uow.files.get_modif()
             re = destination_uow.files.get_re()
@@ -526,7 +557,13 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         if isinstance(confhd, HTTPResponse):
             return confhd
         for r in regras_ativas[estagio]:
-            self.apply_rule(r, cadastro_hidr, modif, re, confhd, dger)
+            res = self.apply_rule(r, cadastro_hidr, modif, re, confhd, dger)
+            if res.code != 200:
+                return res
+            else:
+                appliedRules.append(
+                    self.converte_regra_equiv_percent(r, cadastro_hidr)
+                )
         with destination_uow:
             res = destination_uow.files.set_modif(modif)
             if res.code != 200:
@@ -537,7 +574,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             res = destination_uow.files.set_confhd(confhd)
             if res.code != 200:
                 return res
-        return regras_ativas[estagio]
+        return appliedRules
 
 
 class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
@@ -607,7 +644,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         dadger: Dadger,
         rule: ReservoirGroupRule,
         applicationStage: int,
-    ) -> bool:
+    ) -> HTTPResponse:
         def aplica_regra_qdef(
             rule: ReservoirGroupRule, dadger: Dadger, estagio: int
         ):
@@ -681,8 +718,10 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         if rule.constraintType == "QDEF":
             aplica_regra_qdef(rule, dadger, applicationStage)
         else:
-            return False
-        return True
+            return HTTPResponse(
+                code=500, detail=f"error applying rule {str(rule)}"
+            )
+        return HTTPResponse(code=200, detail="success")
 
     def mapeia_semanas_dias_fim(
         self, dadger: Dadger, relato: Relato, delta_inicial: int = 0
@@ -711,53 +750,6 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 set([r for r in rules if r.month == endDate.month])
             )
         return mappedRules
-
-    def aplica_regras_caso(
-        self,
-        regras_operacao: List[ReservoirRule],
-        dadger: Dadger,
-        relato: Relato,
-        gap_semanas: int = 0,
-        regras_mensais: bool = False,
-    ) -> bool:
-
-        # Identifica o dia de fim de cada semana do DECOMP anterior
-        mapa_dias_fim = self.mapeia_semanas_dias_fim(
-            dadger, relato, gap_semanas
-        )
-        # Se está falando de regras mensais, não consulta semana a semana
-        if regras_mensais:
-            ultimo_estagio = list(mapa_dias_fim.keys())[-1]
-            mapa_dias_fim = {1: mapa_dias_fim[ultimo_estagio]}
-        Log.log().info(
-            f"Dias de fim dos estágios do DECOMP anterior: {mapa_dias_fim}"
-        )
-
-        # Filtra as regras de operação para cada estágio
-        # do DECOMP anterior
-        regras_estagios = self.regras_estagios(regras_operacao, mapa_dias_fim)
-
-        # Identifica as regras ativas
-        regras_ativas = self.identifica_regras_ativas(regras_estagios, relato)
-
-        # Aplica as regras ativas
-        registros_dp = dadger.dp()
-        num_subsistemas = len(dadger.sb())
-        num_estagios = int(len(registros_dp) / num_subsistemas)
-        estagios_decomp_atual = list(range(1, num_estagios + 1))
-        sucessos: List[bool] = []
-        for estagio in estagios_decomp_atual:
-            Log.log().info(
-                f"Aplicando regras de reservatórios no estágio {estagio}"
-            )
-            if estagio not in regras_ativas.keys():
-                estagio_aplicacao = sorted(list(regras_ativas.keys()))[-1]
-            else:
-                estagio_aplicacao = estagio
-            for r in regras_ativas[estagio_aplicacao]:
-                sucessos.append(self.aplica_regra(dadger, r, estagio))
-
-        return all(sucessos)
 
     def aplica_regras_caso(
         self,
@@ -830,11 +822,12 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             else:
                 applicationStage = estagio
             for r in activeRules[applicationStage]:
-                if self.aplica_regra(dadger, r, estagio):
-                    appliedRules.append(appliedRules)
+                res = self.aplica_regra(dadger, r, estagio)
+                if res.code != 200:
+                    return res
                 else:
-                    return HTTPResponse(
-                        code=500, detail=f"error applying rule {str(r)}"
+                    appliedRules.append(
+                        self.converte_regra_equiv_percent(r, hidr)
                     )
 
         return appliedRules
@@ -846,6 +839,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         destination_uow: AbstractUnitOfWork,
     ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
 
+        allResults: List[ReservoirGroupRule] = []
         # Obtém o último DECOMP executado
         with destination_uow:
             currentDadger = await destination_uow.files.get_dadger()
@@ -861,18 +855,25 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 + "com periodicidade semanal."
             )
             Log.log().info(msg)
-            return HTTPResponse(code=404, detail=msg)
-        lastDecompSource = decompSources[-1]
-        with lastDecompSource:
-            relato = lastDecompSource.files.get_relato()
-        if isinstance(relato, HTTPResponse):
-            return relato
+        else:
+            lastDecompSource = decompSources[-1]
+            with lastDecompSource:
+                relato = lastDecompSource.files.get_relato()
+                hidr = lastDecompSource.files.get_hidr()
+            if isinstance(relato, HTTPResponse):
+                return relato
+            if isinstance(hidr, HTTPResponse):
+                return hidr
 
-        weeklyResult = self.aplica_regras_caso(
-            weeklyRules, currentDadger, relato
-        )
-        if isinstance(weeklyResult, HTTPResponse):
-            return weeklyResult
+            Log.log().info("Aplicando regras SEMANAIS")
+            weeklyResult = self.aplica_regras_caso(
+                weeklyRules, currentDadger, relato, hidr.cadastro
+            )
+            if isinstance(weeklyResult, HTTPResponse):
+                if weeklyResult.code != 404:
+                    return weeklyResult
+            else:
+                allResults += weeklyResult
 
         currentDecompDate = datetime(
             year=currentDadger.dt.ano,
@@ -911,30 +912,36 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 + "com periodicidade mensal."
             )
             Log.log().info(msg)
-            return HTTPResponse(code=404, detail=msg)
+        else:
+            monthlyRules = list(set([r for r in rules if r.frequency == "M"]))
+            weekGap = (
+                len(sources_uow) - sources_uow.index(right_source_uow) - 2
+            )
 
-        monthlyRules = list(set([r for r in rules if r.frequency == "M"]))
-        weekGap = len(sources_uow) - sources_uow.index(right_source_uow) - 2
+            with right_source_uow:
+                relato = right_source_uow.files.get_relato()
+            if isinstance(relato, HTTPResponse):
+                return relato
 
-        with right_source_uow:
-            relato = right_source_uow.files.get_relato()
-        if isinstance(relato, HTTPResponse):
-            return relato
-
-        monthlyResult = self.aplica_regras_caso(
-            monthlyRules,
-            currentDadger,
-            relato,
-            weekGap,
-            True,
-        )
-        if isinstance(monthlyResult, HTTPResponse):
-            return monthlyResult
+            Log.log().info("Aplicando regras MENSAIS")
+            monthlyResult = self.aplica_regras_caso(
+                monthlyRules,
+                currentDadger,
+                relato,
+                hidr.cadastro,
+                weekGap,
+                True,
+            )
+            if isinstance(monthlyResult, HTTPResponse):
+                if monthlyResult.code != 404:
+                    return monthlyResult
+            else:
+                allResults += monthlyResult
 
         with destination_uow:
             destination_uow.files.set_dadger(currentDadger)
 
-        return weeklyResult + monthlyResult
+        return allResults
 
 
 SUPPORTED_PROGRAMS: Dict[Program, AbstractReservoirRuleRepository] = {
