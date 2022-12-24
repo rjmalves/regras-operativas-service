@@ -26,16 +26,16 @@ class AbstractReservoirRuleRepository:
         self, rule: ReservoirRule, uheTable: pd.DataFrame
     ) -> ReservoirRule:
         convertedRule = ReservoirRule(
-            rule.reservoirCode,
-            rule.uheCode,
-            rule.constraintType,
-            rule.month,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            rule.frequency,
-            rule.label,
+            reservoirCode=rule.reservoirCode,
+            uheCode=rule.uheCode,
+            constraintType=rule.constraintType,
+            month=rule.month,
+            minLimit=rule.minLimit,
+            maxLimit=rule.maxLimit,
+            minVolume=0.0,
+            maxVolume=0.0,
+            frequency=rule.frequency,
+            label=rule.label,
         )
         vmin = uheTable.at[rule.reservoirCode, "Volume Mínimo"]
         vmax = uheTable.at[rule.reservoirCode, "Volume Máximo"]
@@ -225,7 +225,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         volutil = volmax - volmin
         vol65 = volmin + 0.65 * volutil
         hjus = hidr.at[code, "Canal de Fuga Médio"]
-        hmon = apply_poly([hidr.at[code, f"A{i} CV"] for i in range(5)], vol65)
+        hmon = apply_poly([hidr.at[code, f"A{i} VC"] for i in range(5)], vol65)
         losses = hidr.at[code, "Perdas"]
         hliq = hmon - hjus - losses
         prod = hidr.at[code, "Produtibilidade Específica"]

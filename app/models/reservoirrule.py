@@ -28,3 +28,24 @@ class ReservoirRule(BaseModel):
             + f" -> ({self.minLimit},{self.maxLimit}). "
             + f" Periodicidade {self.frequency}"
         )
+
+    def __key(self):
+        return (
+            self.reservoirCode,
+            self.uheCode,
+            self.constraintType,
+            self.month,
+            self.label,
+            self.minVolume,
+            self.maxVolume,
+            self.minLimit,
+            self.maxLimit,
+        )
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, ReservoirRule):
+            return self.__key() == other.__key()
+        return NotImplemented
