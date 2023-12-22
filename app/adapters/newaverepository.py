@@ -1,17 +1,18 @@
 from abc import ABC, abstractmethod
 import pathlib
+from os.path import join
 from typing import Dict, Optional, Union
 from inewave.newave.caso import Caso
 from inewave.newave.arquivos import Arquivos
-from inewave.newave.dger import DGer
+from inewave.newave.dger import Dger
 from inewave.newave.hidr import Hidr
 from inewave.newave.confhd import Confhd
-from inewave.newave.eafpast import EafPast
-from inewave.newave.adterm import AdTerm
+from inewave.newave.eafpast import Eafpast
+from inewave.newave.adterm import Adterm
 from inewave.newave.term import Term
 from inewave.newave.modif import Modif
-from inewave.newave.re import RE
-from inewave.newave.pmo import PMO
+from inewave.newave.re import Re
+from inewave.newave.pmo import Pmo
 
 from app.internal.settings import Settings
 from app.utils.encoding import converte_codificacao
@@ -26,11 +27,11 @@ class AbstractNewaveRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_dger(self) -> Union[DGer, HTTPResponse]:
+    async def get_dger(self) -> Union[Dger, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
-    def set_dger(self, d: DGer) -> HTTPResponse:
+    def set_dger(self, d: Dger) -> HTTPResponse:
         raise NotImplementedError
 
     @abstractmethod
@@ -46,19 +47,19 @@ class AbstractNewaveRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_eafpast(self) -> Union[EafPast, HTTPResponse]:
+    def get_eafpast(self) -> Union[Eafpast, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
-    def set_eafpast(self, d: EafPast) -> HTTPResponse:
+    def set_eafpast(self, d: Eafpast) -> HTTPResponse:
         raise NotImplementedError
 
     @abstractmethod
-    def get_adterm(self) -> Union[AdTerm, HTTPResponse]:
+    def get_adterm(self) -> Union[Adterm, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
-    def set_adterm(self, d: AdTerm) -> HTTPResponse:
+    def set_adterm(self, d: Adterm) -> HTTPResponse:
         raise NotImplementedError
 
     @abstractmethod
@@ -78,15 +79,15 @@ class AbstractNewaveRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_re(self) -> Union[RE, HTTPResponse]:
+    def get_re(self) -> Union[Re, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
-    def set_re(self, d: RE) -> HTTPResponse:
+    def set_re(self, d: Re) -> HTTPResponse:
         raise NotImplementedError
 
     @abstractmethod
-    def get_pmo(self) -> Union[PMO, HTTPResponse]:
+    def get_pmo(self) -> Union[Pmo, HTTPResponse]:
         raise NotImplementedError
 
 
@@ -94,35 +95,35 @@ class RawNewaveRepository(AbstractNewaveRepository):
     def __init__(self, path: str):
         self.__path = path
         try:
-            self.__caso = Caso.le_arquivo(self.__path)
+            self.__caso = Caso.read(join(self.__path, "caso.dat"))
         except FileNotFoundError:
             Log.log().error("Não foi encontrado o arquivo caso.dat")
         self.__arquivos: Optional[Arquivos] = None
-        self.__dger: Optional[DGer] = None
+        self.__dger: Optional[Dger] = None
         self.__read_dger = False
         self.__hidr: Optional[Hidr] = None
         self.__read_hidr = False
         self.__confhd: Optional[Confhd] = None
         self.__read_confhd = False
-        self.__eafpast: Optional[EafPast] = None
+        self.__eafpast: Optional[Eafpast] = None
         self.__read_eafpast = False
-        self.__adterm: Optional[AdTerm] = None
+        self.__adterm: Optional[Adterm] = None
         self.__read_adterm = False
         self.__term: Optional[Term] = None
         self.__read_term = False
         self.__modif: Optional[Modif] = None
         self.__read_modif = False
-        self.__re: Optional[RE] = None
+        self.__re: Optional[Re] = None
         self.__read_re = False
-        self.__pmo: Optional[PMO] = None
+        self.__pmo: Optional[Pmo] = None
         self.__read_pmo = False
 
     @property
     def arquivos(self) -> Union[Arquivos, HTTPResponse]:
         if self.__arquivos is None:
             try:
-                self.__arquivos = Arquivos.le_arquivo(
-                    self.__path, self.__caso.arquivos
+                self.__arquivos = Arquivos.read(
+                    join(self.__path, self.__caso.arquivos)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.__caso.arquivos}"
@@ -130,7 +131,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 return HTTPResponse(code=404, detail=msg)
         return self.__arquivos
 
-    async def get_dger(self) -> Union[DGer, HTTPResponse]:
+    async def get_dger(self) -> Union[Dger, HTTPResponse]:
         if self.__read_dger is False:
             self.__read_dger = True
             try:
@@ -142,7 +143,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 )
                 await converte_codificacao(caminho, script)
                 Log.log().info(f"Lendo arquivo {self.arquivos.dger}")
-                self.__dger = DGer.le_arquivo(self.__path, self.arquivos.dger)
+                self.__dger = Dger.read(join(self.__path, self.arquivos.dger))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dger}"
                 return HTTPResponse(code=404, detail=msg)
@@ -153,9 +154,9 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__dger
 
-    def set_dger(self, d: DGer) -> HTTPResponse:
+    def set_dger(self, d: Dger) -> HTTPResponse:
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.dger)
+            d.write(join(self.__path, self.arquivos.dger))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
@@ -165,7 +166,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_hidr = True
             try:
                 Log.log().info("Lendo arquivo hidr.dat")
-                self.__hidr = Hidr.le_arquivo(self.__path, "hidr.dat")
+                self.__hidr = Hidr.read(join(self.__path, "hidr.dat"))
             except FileNotFoundError as e:
                 msg = "Não foi encontrado o arquivo hidr.dat"
                 return HTTPResponse(code=404, detail=msg)
@@ -179,8 +180,8 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_confhd = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.confhd}")
-                self.__confhd = Confhd.le_arquivo(
-                    self.__path, self.arquivos.confhd
+                self.__confhd = Confhd.read(
+                    join(self.__path, self.arquivos.confhd)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.confhd}"
@@ -194,18 +195,18 @@ class RawNewaveRepository(AbstractNewaveRepository):
 
     def set_confhd(self, d: Confhd):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.confhd)
+            d.write(join(self.__path, self.arquivos.confhd))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
 
-    def get_eafpast(self) -> Union[EafPast, HTTPResponse]:
+    def get_eafpast(self) -> Union[Eafpast, HTTPResponse]:
         if self.__read_eafpast is False:
             self.__read_eafpast = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.vazpast}")
-                self.__eafpast = EafPast.le_arquivo(
-                    self.__path, self.arquivos.vazpast
+                self.__eafpast = Eafpast.read(
+                    join(self.__path, self.arquivos.vazpast)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.vazpast}"
@@ -217,20 +218,20 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__eafpast
 
-    def set_eafpast(self, d: EafPast):
+    def set_eafpast(self, d: Eafpast):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.vazpast)
+            d.write(join(self.__path, self.arquivos.vazpast))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
 
-    def get_adterm(self) -> Union[AdTerm, HTTPResponse]:
+    def get_adterm(self) -> Union[Adterm, HTTPResponse]:
         if self.__read_adterm is False:
             self.__read_adterm = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.adterm}")
-                self.__adterm = AdTerm.le_arquivo(
-                    self.__path, self.arquivos.adterm
+                self.__adterm = Adterm.read(
+                    join(self.__path, self.arquivos.adterm)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.adterm}"
@@ -242,9 +243,9 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__adterm
 
-    def set_adterm(self, d: AdTerm):
+    def set_adterm(self, d: Adterm):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.adterm)
+            d.write(join(self.__path, self.arquivos.adterm))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
@@ -254,7 +255,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_term = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.term}")
-                self.__term = Term.le_arquivo(self.__path, self.arquivos.term)
+                self.__term = Term.read(join(self.__path, self.arquivos.term))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.term}"
                 return HTTPResponse(code=404, detail=msg)
@@ -267,7 +268,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
 
     def set_term(self, d: Term):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.term)
+            d.write(join(self.__path, self.arquivos.term))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
@@ -277,8 +278,8 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_modif = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.modif}")
-                self.__modif = Modif.le_arquivo(
-                    self.__path, self.arquivos.modif
+                self.__modif = Modif.read(
+                    join(self.__path, self.arquivos.modif)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.modif}"
@@ -292,17 +293,17 @@ class RawNewaveRepository(AbstractNewaveRepository):
 
     def set_modif(self, d: Modif):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.modif)
+            d.write(join(self.__path, self.arquivos.modif))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
 
-    def get_re(self) -> Union[RE, HTTPResponse]:
+    def get_re(self) -> Union[Re, HTTPResponse]:
         if self.__read_re is False:
             self.__read_re = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.re}")
-                self.__re = RE.le_arquivo(self.__path, self.arquivos.re)
+                self.__re = Re.read(join(self.__path, self.arquivos.re))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.re}"
                 return HTTPResponse(code=404, detail=msg)
@@ -311,19 +312,19 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__re
 
-    def set_re(self, d: RE):
+    def set_re(self, d: Re):
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.re)
+            d.write(join(self.__path, self.arquivos.re))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
 
-    def get_pmo(self) -> Union[PMO, HTTPResponse]:
+    def get_pmo(self) -> Union[Pmo, HTTPResponse]:
         if self.__read_pmo is False:
             self.__read_pmo = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.pmo}")
-                self.__pmo = PMO.le_arquivo(self.__path, self.arquivos.pmo)
+                self.__pmo = Pmo.read(join(self.__path, self.arquivos.pmo))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.pmo}"
                 return HTTPResponse(code=404, detail=msg)

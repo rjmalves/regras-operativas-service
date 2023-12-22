@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Type, Optional, Union
 import pathlib
+from os.path import join
 
 from idecomp.decomp.caso import Caso
 from idecomp.decomp.arquivos import Arquivos
 from idecomp.decomp.dadger import Dadger
-from idecomp.decomp.dadgnl import DadGNL
+from idecomp.decomp.dadgnl import Dadgnl
 from idecomp.decomp.inviabunic import InviabUnic
 from idecomp.decomp.relato import Relato
-from idecomp.decomp.relgnl import RelGNL
+from idecomp.decomp.relgnl import Relgnl
 from idecomp.decomp.hidr import Hidr
 
 from app.internal.settings import Settings
@@ -37,11 +38,11 @@ class AbstractDecompRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_dadgnl(self) -> Union[DadGNL, HTTPResponse]:
+    async def get_dadgnl(self) -> Union[Dadgnl, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
-    def set_dadgnl(self, d: DadGNL) -> HTTPResponse:
+    def set_dadgnl(self, d: Dadgnl) -> HTTPResponse:
         raise NotImplementedError
 
     @abstractmethod
@@ -53,7 +54,7 @@ class AbstractDecompRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_relgnl(self) -> Union[RelGNL, HTTPResponse]:
+    def get_relgnl(self) -> Union[Relgnl, HTTPResponse]:
         raise NotImplementedError
 
     @abstractmethod
@@ -65,17 +66,17 @@ class RawDecompRepository(AbstractDecompRepository):
     def __init__(self, path: str):
         self.__path = path
         try:
-            self.__caso = Caso.le_arquivo(str(self.__path))
+            self.__caso = Caso.read(join(str(self.__path), "caso.dat"))
         except FileNotFoundError:
             Log.log().error("Não foi encontrado o arquivo caso.dat")
         self.__arquivos: Optional[Arquivos] = None
         self.__dadger: Optional[Dadger] = None
         self.__read_dadger = False
-        self.__dadgnl: Optional[DadGNL] = None
+        self.__dadgnl: Optional[Dadgnl] = None
         self.__read_dadgnl = False
         self.__relato: Optional[Relato] = None
         self.__read_relato = False
-        self.__relgnl: Optional[RelGNL] = None
+        self.__relgnl: Optional[Relgnl] = None
         self.__read_relgnl = False
         self.__inviabunic: Optional[InviabUnic] = None
         self.__read_inviabunic = False
@@ -90,8 +91,8 @@ class RawDecompRepository(AbstractDecompRepository):
     def arquivos(self) -> Union[Arquivos, HTTPResponse]:
         if self.__arquivos is None:
             try:
-                self.__arquivos = Arquivos.le_arquivo(
-                    self.__path, self.__caso.arquivos
+                self.__arquivos = Arquivos.read(
+                    join(self.__path, self.__caso.arquivos)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.__caso.arquivos}"
@@ -111,8 +112,8 @@ class RawDecompRepository(AbstractDecompRepository):
                 )
                 await converte_codificacao(caminho, script)
                 Log.log().info(f"Lendo arquivo {self.arquivos.dadger}")
-                self.__dadger = Dadger.le_arquivo(
-                    self.__path, self.arquivos.dadger
+                self.__dadger = Dadger.read(
+                    join(self.__path, self.arquivos.dadger)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dadger}"
@@ -126,12 +127,12 @@ class RawDecompRepository(AbstractDecompRepository):
 
     def set_dadger(self, d: Dadger) -> HTTPResponse:
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.dadger)
+            d.write(join(self.__path, self.arquivos.dadger))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
 
-    async def get_dadgnl(self) -> Union[DadGNL, HTTPResponse]:
+    async def get_dadgnl(self) -> Union[Dadgnl, HTTPResponse]:
         if self.__read_dadgnl is False:
             self.__read_dadgnl = True
             try:
@@ -143,8 +144,8 @@ class RawDecompRepository(AbstractDecompRepository):
                 )
                 await converte_codificacao(caminho, script)
                 Log.log().info(f"Lendo arquivo {self.arquivos.dadgnl}")
-                self.__dadgnl = DadGNL.le_arquivo(
-                    self.__path, self.arquivos.dadgnl
+                self.__dadgnl = Dadgnl.read(
+                    join(self.__path, self.arquivos.dadgnl)
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dadgnl}"
@@ -156,9 +157,9 @@ class RawDecompRepository(AbstractDecompRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__dadgnl
 
-    def set_dadgnl(self, d: DadGNL) -> HTTPResponse:
+    def set_dadgnl(self, d: Dadgnl) -> HTTPResponse:
         try:
-            d.escreve_arquivo(self.__path, self.arquivos.dadgnl)
+            d.write(join(self.__path, self.arquivos.dadgnl))
             return HTTPResponse(code=200, detail="")
         except Exception as e:
             return HTTPResponse(code=500, detail=str(e))
@@ -168,8 +169,8 @@ class RawDecompRepository(AbstractDecompRepository):
             self.__read_relato = True
             try:
                 Log.log().info(f"Lendo arquivo relato.{self.caso.arquivos}")
-                self.__relato = Relato.le_arquivo(
-                    self.__path, f"relato.{self.caso.arquivos}"
+                self.__relato = Relato.read(
+                    join(self.__path, f"relato.{self.caso.arquivos}")
                 )
             except FileNotFoundError as e:
                 msg = (
@@ -183,13 +184,13 @@ class RawDecompRepository(AbstractDecompRepository):
                 return HTTPResponse(code=500, detail=str(e))
         return self.__relato
 
-    def get_relgnl(self) -> Union[RelGNL, HTTPResponse]:
+    def get_relgnl(self) -> Union[Relgnl, HTTPResponse]:
         if self.__read_relgnl is False:
             self.__read_relgnl = True
             try:
                 Log.log().info(f"Lendo arquivo relgnl.{self.caso.arquivos}")
-                self.__relgnl = RelGNL.le_arquivo(
-                    self.__path, f"relgnl.{self.caso.arquivos}"
+                self.__relgnl = Relgnl.read(
+                    join(self.__path, f"relgnl.{self.caso.arquivos}")
                 )
             except FileNotFoundError as e:
                 msg = (
@@ -210,8 +211,8 @@ class RawDecompRepository(AbstractDecompRepository):
                 Log.log().info(
                     f"Lendo arquivo inviab_unic.{self.caso.arquivos}"
                 )
-                self.__inviabunic = InviabUnic.le_arquivo(
-                    self.__path, f"inviab_unic.{self.caso.arquivos}"
+                self.__inviabunic = InviabUnic.read(
+                    join(self.__path, f"inviab_unic.{self.caso.arquivos}")
                 )
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo inviab_unic.{self.caso.arquivos}"
@@ -228,7 +229,7 @@ class RawDecompRepository(AbstractDecompRepository):
             self.__read_hidr = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.hidr}")
-                self.__hidr = Hidr.le_arquivo(self.__path, self.arquivos.hidr)
+                self.__hidr = Hidr.read(join(self.__path, self.arquivos.hidr))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.hidr}"
                 return HTTPResponse(code=404, detail=msg)

@@ -2,9 +2,9 @@ from abc import abstractmethod
 from typing import Dict, List, Union, Optional
 import pandas as pd
 from idecomp.decomp.dadger import Dadger
-from idecomp.decomp.modelos.dadger import CQ, DP, SB, HQ, LQ
+from idecomp.decomp.modelos.dadger import CQ
 from idecomp.decomp.relato import Relato
-from inewave.newave import Confhd, Modif, RE, DGer
+from inewave.newave import Confhd, Modif, Re, Dger
 from inewave.newave.modelos.modif import USINA, VAZMIN, VAZMINT
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -37,8 +37,8 @@ class AbstractReservoirRuleRepository:
             frequency=rule.frequency,
             label=rule.label,
         )
-        vmin = uheTable.at[rule.reservoirCode, "Volume Mínimo"]
-        vmax = uheTable.at[rule.reservoirCode, "Volume Máximo"]
+        vmin = uheTable.at[rule.reservoirCode, "volume_minimo"]
+        vmax = uheTable.at[rule.reservoirCode, "volume_maximo"]
 
         vutil = vmax - vmin
         convertedRule.minVolume = vmin + vutil * rule.minVolume / 100.0
@@ -63,8 +63,8 @@ class AbstractReservoirRuleRepository:
         vmin = 0.0
         vmax = 0.0
         for code in rule.reservoirCodes:
-            vmin += uheTable.at[code, "Volume Mínimo"]
-            vmax += uheTable.at[code, "Volume Máximo"]
+            vmin += uheTable.at[code, "volume_minimo"]
+            vmax += uheTable.at[code, "volume_maximo"]
 
         vutil = vmax - vmin
         convertedRule.minVolume = round(
@@ -79,17 +79,19 @@ class AbstractReservoirRuleRepository:
         self, resultTable: pd.DataFrame, uheTable: pd.DataFrame
     ):
         convertedTable = resultTable.copy()
-        stageCols = ["Inicial"] + [
-            c for c in convertedTable.columns if "Estágio" in c
+        stageCols = ["inicial"] + [
+            c for c in convertedTable.columns if "estagio" in c
         ]
         for _, line in resultTable.iterrows():
-            vmin = uheTable.at[int(line["Número"]), "Volume Mínimo"]
-            vmax = uheTable.at[int(line["Número"]), "Volume Máximo"]
+            vmin = uheTable.at[int(line["codigo_usina"]), "volume_minimo"]
+            vmax = uheTable.at[int(line["codigo_usina"]), "volume_maximo"]
             vutil = vmax - vmin
             for c in stageCols:
                 v = float(line[c]) * vutil / 100.0 + vmin
                 convertedTable.loc[
-                    convertedTable["Número"] == int(line["Número"]), c
+                    convertedTable["codigo_usina"]
+                    == int(line["codigo_usina"]),
+                    c,
                 ] = v
         return convertedTable
 
@@ -114,6 +116,7 @@ class AbstractReservoirRuleRepository:
                         ]
                     )
                 )
+                # TODO - suportar QTUR
                 for p in frequencies:
                     uheRules = ReservoirGroupRule(
                         reservoirCodes=[],
@@ -174,14 +177,13 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         volumes: pd.DataFrame,
         stage: int,
     ) -> Optional[ReservoirGroupRule]:
-
         reservoirCodes = next(
             r.reservoirCodes for r in rules if r.uheCode == uheCode
         )
         totalVolume = float(
             volumes.loc[
-                volumes["Número"].isin(reservoirCodes),
-                f"Estágio {stage}",
+                volumes["codigo_usina"].isin(reservoirCodes),
+                f"estagio_{stage}",
             ].sum()
         )
         try:
@@ -227,9 +229,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Obtém os volumes
         activeRulesByStage: Dict[int, List[ReservoirGroupRule]] = {}
         stage = int(
-            [c for c in list(uheVolumesHm3.columns) if "Estágio" in c][
+            [c for c in list(uheVolumesHm3.columns) if "estagio" in c][
                 -1
-            ].split("Estágio")[1]
+            ].split("estagio")[1]
         )
         # Obtém as regras ativas para cada usina
         uhesWithRules = list(set([r.uheCode for r in rules]))
@@ -250,15 +252,17 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             return sum([c * vol**i for i, c in enumerate(coefficients)])
 
         # Localiza os dados de interesse da usina
-        volmin = hidr.at[code, "Volume Mínimo"]
-        volmax = hidr.at[code, "Volume Máximo"]
+        volmin = hidr.at[code, "volume_minimo"]
+        volmax = hidr.at[code, "volume_maximo"]
         volutil = volmax - volmin
         vol65 = volmin + 0.65 * volutil
-        hjus = hidr.at[code, "Canal de Fuga Médio"]
-        hmon = apply_poly([hidr.at[code, f"A{i} VC"] for i in range(5)], vol65)
-        losses = hidr.at[code, "Perdas"]
+        hjus = hidr.at[code, "canal_fuga_medio"]
+        hmon = apply_poly(
+            [hidr.at[code, f"a_{i}_volume_cota"] for i in range(5)], vol65
+        )
+        losses = hidr.at[code, "perdas"]
         hliq = hmon - hjus - losses
-        prod = hidr.at[code, "Produtibilidade Específica"]
+        prod = hidr.at[code, "produtibilidade_especifica"]
         avg_prod = prod * hliq
         return avg_prod * qdef
 
@@ -268,7 +272,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         modif: Modif,
         hidr: pd.DataFrame,
         confhd: Confhd,
-        dger: DGer,
+        dger: Dger,
         code: int = None,
     ):
         if code is None:
@@ -282,11 +286,11 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         if modifUhe is None:
             newUhe = USINA()
             newUhe.codigo = code
-            newUhe.nome = str(hidr.at[code, "Nome"])
-            modif.append_registro(newUhe)
+            newUhe.nome = str(hidr.at[code, "nome_usina"])
+            modif.data.append(newUhe)
             Log.log().info(f"Criando novo registro USINA {code}")
             confhd.usinas.loc[
-                confhd.usinas["Número"] == code, "Modificada"
+                confhd.usinas["codigo_usina"] == code, "usina_modificada"
             ] = 1
             Log.log().info(f"Modificando usina {code} no confhd.dat")
         # Obtém o registro que modifica a usina
@@ -311,80 +315,72 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         if len(actualVazminT) > 0:
             for m in actualVazminT:
                 lastFlow = m.vazao
-                startDate = datetime(year=m.ano, month=m.mes, day=1)
+                startDate = m.data_inicio
                 if startDate >= caseDate + relativedelta(months=+2):
                     break
             if lastFlow == 0:
-                lastFlow = float(hidr.loc[code, "Vazão Mínima"])
+                lastFlow = float(hidr.loc[code, "vazao_minima_historica"])
         elif len(actualVazmin) > 0:
             lastFlow = actualVazmin[-1].vazao
         else:
-            lastFlow = hidr.at[code, "Vazão Mínima"]
+            lastFlow = hidr.at[code, "vazao_minima_historica"]
         Log.log().info(f"Última vazão = {lastFlow}")
         for m in actualVazminT:
             # Deleta os VAZMINT que iniciem nos 2 primeiros meses
-            startDate = datetime(year=m.ano, month=m.mes, day=1)
+            startDate = m.data_inicio
             if startDate < caseDate + relativedelta(months=+2):
-                modif.deleta_registro(m)
+                modif.data.remove(m)
         # Cria os VAZMINT
         # - O primeiro é válido para os 2 primeiros meses
         newVazminT = VAZMINT()
-        newVazminT.mes = dger.mes_inicio_estudo
-        newVazminT.ano = dger.ano_inicio_estudo
+        newVazminT.data_inicio = datetime(
+            dger.ano_inicio_estudo, dger.mes_inicio_estudo, 1
+        )
         newVazminT.vazao = rule.minLimit
         Log.log().info(
             f"Criando VAZMINT = {dger.mes_inicio_estudo}"
             + f" {dger.ano_inicio_estudo} {rule.minLimit}"
         )
-        modif.cria_registro(usina, newVazminT)
+        modif.data.add_after(usina, newVazminT)
         # - O segundo é para retornar ao valor anterior
         endDate = datetime(
             year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
         ) + relativedelta(months=+2)
         nextVazminT = VAZMINT()
-        nextVazminT.mes = endDate.month
-        nextVazminT.ano = endDate.year
+        newVazminT.data_inicio = datetime(endDate.year, endDate.month, 1)
         nextVazminT.vazao = lastFlow
         Log.log().info(
             f"Criando VAZMINT = {endDate.month}"
             + f" {endDate.year} {lastFlow}"
         )
-        modif.cria_registro(newVazminT, nextVazminT)
+        modif.data.add_after(newVazminT, nextVazminT)
         return HTTPResponse(code=200, detail="success")
 
     def apply_qdef_re_rule(
         self,
         rule: ReservoirGroupRule,
-        re: RE,
+        re: Re,
         hidr: pd.DataFrame,
-        dger: DGer,
+        dger: Dger,
         code: int = None,
     ):
         if code is None:
             code = rule.uheCode
         # Se não existe um conjunto com a usina em questão, cria.
-        uheColumns = [f"Usina {i}" for i in range(1, 11)]
         setDfs = re.usinas_conjuntos
-        sets = list(setDfs["Conjunto"].unique())
-        if code not in setDfs[uheColumns].to_numpy():
+        sets = list(setDfs["conjunto"].unique())
+        if code not in setDfs["codigo_usina"].to_numpy():
             Log.log().info(f"Criando conjunto com usina {code}")
             setNumber = max(sets) + 1
-            newSet = {
-                **{"Conjunto": [setNumber]},
-                **{c: [0] for c in uheColumns},
-            }
-            newSet["Usina 1"] = [code]
-            re.usinas_conjuntos = pd.concat(
-                [setDfs, pd.DataFrame(data=newSet)],
-                ignore_index=True,
-            )
+            re.usinas_conjuntos.loc[re.usinas_conjuntos.shape[0], :] = [
+                setNumber,
+                code,
+            ]
             setDfs = re.usinas_conjuntos
         # Senão, identifica.
-        setNumber = next(
-            int(row["Conjunto"])
-            for _, row in setDfs.iterrows()
-            if code in row[uheColumns].to_numpy()
-        )
+        setNumber = setDfs.loc[
+            setDfs["codigo_usina"] == code, "conjunto"
+        ].iloc[0]
         # Cria as restrições para o conjunto em questão, nos 2 primeiros
         # meses do horizonte
         startDate = datetime(
@@ -395,14 +391,14 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # em algum dos 2 primeiros meses
         constraints = re.restricoes
         constraintsIndices = constraints.loc[
-            (constraints["Conjunto"] == setNumber)
+            (constraints["conjunto"] == setNumber)
             & (
-                (constraints["Mês Início"] == startDate.month)
-                | (constraints["Mês Início"] == endDate.month)
+                (constraints["mes_inicio"] == startDate.month)
+                | (constraints["mes_inicio"] == endDate.month)
             )
             & (
-                (constraints["Ano Início"] == startDate.year)
-                | (constraints["Ano Início"] == endDate.year)
+                (constraints["ano_inicio"] == startDate.year)
+                | (constraints["ano_inicio"] == endDate.year)
             ),
             :,
         ].index
@@ -412,19 +408,17 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         qdef = rule.maxLimit
         if qdef is None:
             return HTTPResponse(code=200, detail="ignored")
-        nova_restricao = {
-            "Conjunto": [setNumber],
-            "Mês Início": [startDate.month],
-            "Ano Início": [startDate.year],
-            "Mês Fim": [endDate.month],
-            "Ano Fim": [endDate.year],
-            "Flag P": [0],
-            "Restrição": [self.obtem_ghmax_usina(code, qdef, hidr)],
-            "Motivo": ["REGRA ANA"],
-        }
-        re.restricoes = pd.concat(
-            [constraints, pd.DataFrame(data=nova_restricao)], ignore_index=True
-        )
+
+        re.restricoes.loc[re.restricoes.shape[0], :] = [
+            setNumber,
+            startDate.month,
+            startDate.year,
+            endDate.month,
+            endDate.year,
+            0,
+            self.obtem_ghmax_usina(code, qdef, hidr),
+            "REGRA ANA",
+        ]
         return HTTPResponse(code=200, detail="success")
 
     def apply_rule(
@@ -432,9 +426,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         rule: ReservoirRule,
         hidr: pd.DataFrame,
         modif: Modif,
-        re: RE,
+        re: Re,
         confhd: Confhd,
-        dger: DGer,
+        dger: Dger,
     ) -> HTTPResponse:
         if rule.constraintType == "QDEF":
             Log.log().info(f"Aplicando regra: {str(rule)}")
@@ -593,8 +587,8 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         )
         totalVolume = float(
             volumes.loc[
-                volumes["Número"].isin(reservoirCodes),
-                f"Estágio {estagio}",
+                volumes["codigo_usina"].isin(reservoirCodes),
+                f"estagio_{estagio}",
             ].sum()
         )
         try:
@@ -655,19 +649,23 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             if isinstance(cqs, CQ):
                 cqs = [cqs]
             if isinstance(cqs, list):
-                cqs_usina = [c for c in cqs if c.uhe == rule.uheCode]
+                cqs_usina = [c for c in cqs if c.codigo_usina == rule.uheCode]
                 if len(cqs_usina) > 0:
-                    codigos_restricoes = [cq.restricao for cq in cqs_usina]
+                    codigos_restricoes = [
+                        cq.codigo_restricao for cq in cqs_usina
+                    ]
                 else:
-                    codigos_restricoes = [cqs[-1].restricao + 1]
+                    codigos_restricoes = [cqs[-1].codigo_restricao + 1]
                     cqs_usinas = [CQ()]
-                    cqs_usinas[0].restricao = cqs[-1].restricao + 1
+                    cqs_usinas[0].codigo_restricao = (
+                        cqs[-1].codigo_restricao + 1
+                    )
                     cqs_usinas[0].estagio = 1
-                    cqs_usinas[0].uhe = rule.uheCode
+                    cqs_usinas[0].codigo_usina = rule.uheCode
                     cqs_usinas[0].coeficiente = 1
                     cqs_usinas[0].tipo = rule.constraintType
                 efs = [
-                    dadger.hq(codigo=codigo).estagio_final
+                    dadger.hq(codigo_restricao=codigo).estagio_final
                     for codigo in codigos_restricoes
                 ]
             # else:
@@ -703,11 +701,11 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                     dadger.lq(codigo, e)
                 # Aplica a regra no estágio devido, se tiver limites inf/sup
                 if rule.minLimit is not None:
-                    dadger.lq(codigo, estagio).limites_inferiores = [
+                    dadger.lq(codigo, estagio).limite_inferior = [
                         rule.minLimit
                     ] * 3
                 if rule.maxLimit is not None:
-                    dadger.lq(codigo, estagio).limites_superiores = [
+                    dadger.lq(codigo, estagio).limite_superior = [
                         rule.maxLimit
                     ] * 3
 
@@ -760,7 +758,6 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         weekGap: int = 0,
         monthly: bool = False,
     ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
-
         # Identifica o dia de fim de cada semana do DECOMP anterior
         endDayMaps = self.mapeia_semanas_dias_fim(dadger, relato, weekGap)
         # Se está falando de regras mensais, não consulta semana a semana
@@ -808,8 +805,8 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         )
 
         # Aplica as regras ativas
-        DPregisters = dadger.lista_registros(DP)
-        subsystemCount = len(dadger.lista_registros(SB))
+        DPregisters = dadger.dp()
+        subsystemCount = len(dadger.sb())
         num_estagios = int(len(DPregisters) / subsystemCount)
         currentDecompStages = list(range(1, num_estagios + 1))
         appliedRules: List[ReservoirGroupRule] = []
@@ -838,7 +835,6 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         sources_uow: List[AbstractUnitOfWork],
         destination_uow: AbstractUnitOfWork,
     ) -> Union[List[ReservoirGroupRule], HTTPResponse]:
-
         allResults: List[ReservoirGroupRule] = []
         # Obtém o último DECOMP executado
         with destination_uow:
