@@ -1,11 +1,17 @@
 from abc import abstractmethod
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Union, Optional, Callable
 import pandas as pd
 from idecomp.decomp.dadger import Dadger
 from idecomp.decomp.modelos.dadger import CQ
 from idecomp.decomp.relato import Relato
 from inewave.newave import Confhd, Modif, Re, Dger
-from inewave.newave.modelos.modif import USINA, VAZMIN, VAZMINT
+from inewave.newave.modelos.modif import (
+    USINA,
+    VAZMIN,
+    VAZMINT,
+    TURBMINT,
+    TURBMAXT,
+)
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from app.models.program import Program
@@ -266,6 +272,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         avg_prod = prod * hliq
         return avg_prod * qdef
 
+    def obtem_engolimento_usina(self, code: int, hidr: pd.DataFrame) -> float:
+        pass
+
     def apply_qdef_modif_rule(
         self,
         rule: ReservoirGroupRule,
@@ -421,6 +430,256 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         ]
         return HTTPResponse(code=200, detail="success")
 
+    def apply_qdef_rule(
+        self,
+        rule: ReservoirRule,
+        hidr: pd.DataFrame,
+        modif: Modif,
+        re: Re,
+        confhd: Confhd,
+        dger: Dger,
+    ) -> HTTPResponse:
+        Log.log().info(f"Aplicando regra: {str(rule)}")
+        # No caso de existirem, aplica também nas fictícias
+        # Aplica a restrição da defluência mínima, se houver,
+        # no modif.dat
+        modifMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_MODIF
+        if rule.minLimit is not None:
+            if rule.uheCode in modifMap.keys():
+                for code in modifMap[rule.uheCode]:
+                    res = self.apply_qdef_modif_rule(
+                        rule, modif, hidr, confhd, dger, code=code
+                    )
+                    if res.code != 200:
+                        return res
+            else:
+                res = self.apply_qdef_modif_rule(
+                    rule, modif, hidr, confhd, dger
+                )
+                if res.code != 200:
+                    return res
+        # Aplica a restrição da defluência máxima, se houver,
+        # no re.dat
+        mapa_re = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_RE
+        if rule.maxLimit is not None:
+            if rule.uheCode in mapa_re.keys():
+                for code in mapa_re[rule.uheCode]:
+                    res = self.apply_qdef_re_rule(
+                        rule, re, hidr, dger, code=code
+                    )
+                    if res.code != 200:
+                        return res
+            else:
+                res = self.apply_qdef_re_rule(rule, re, hidr, dger)
+                if res.code != 200:
+                    return res
+        return HTTPResponse(code=200, detail="success")
+
+    def apply_qtur_min_modif_rule(
+        self,
+        rule: ReservoirGroupRule,
+        modif: Modif,
+        hidr: pd.DataFrame,
+        confhd: Confhd,
+        dger: Dger,
+        code: int = None,
+    ):
+        if code is None:
+            code = rule.uheCode
+        # Se a regra não tem limite mínimo, ignora
+        if rule.minLimit is None:
+            return HTTPResponse(code=200, detail="ignored")
+
+        modifUhe = modif.modificacoes_usina(code)
+        # Se a usina em questão não é modificada, cria uma modificação nova
+        if modifUhe is None:
+            newUhe = USINA()
+            newUhe.codigo = code
+            newUhe.nome = str(hidr.at[code, "nome_usina"])
+            modif.data.append(newUhe)
+            Log.log().info(f"Criando novo registro USINA {code}")
+            confhd.usinas.loc[
+                confhd.usinas["codigo_usina"] == code, "usina_modificada"
+            ] = 1
+            Log.log().info(f"Modificando usina {code} no confhd.dat")
+        # Obtém o registro que modifica a usina
+        usina: USINA = modif.usina(codigo=code)
+
+        actualTurbminT = [m for m in modifUhe if isinstance(m, TURBMINT)]
+        Log.log().info(
+            f"Existem {len(actualTurbminT)} TURBMINT" + f" para a usina {code}"
+        )
+        # Guarda a vazão do primeiro TURBMINT que tenha início após os
+        # 2 primeiros meses. Se não existir, assume valor 0.0
+
+        caseDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        )
+        lastFlow = 0.0
+        if len(actualTurbminT) > 0:
+            for m in actualTurbminT:
+                lastFlow = m.turbinamento
+                startDate = m.data_inicio
+                if startDate >= caseDate + relativedelta(months=+2):
+                    break
+        Log.log().info(f"Último turbinamento = {lastFlow}")
+        for m in actualTurbminT:
+            # Deleta os TURBMINT que iniciem nos 2 primeiros meses
+            startDate = m.data_inicio
+            if startDate < caseDate + relativedelta(months=+2):
+                modif.data.remove(m)
+        # Cria os TURBMINT
+        # - O primeiro é válido para os 2 primeiros meses
+        newTurbminT = TURBMINT()
+        newTurbminT.data_inicio = datetime(
+            dger.ano_inicio_estudo, dger.mes_inicio_estudo, 1
+        )
+        newTurbminT.turbinamento = rule.minLimit
+        Log.log().info(
+            f"Criando TURBMINT = {dger.mes_inicio_estudo}"
+            + f" {dger.ano_inicio_estudo} {rule.minLimit}"
+        )
+        modif.data.add_after(usina, newTurbminT)
+        # - O segundo é para retornar ao valor anterior
+        endDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        ) + relativedelta(months=+2)
+        nextTurbminT = TURBMINT()
+        newTurbminT.data_inicio = datetime(endDate.year, endDate.month, 1)
+        nextTurbminT.turbinamento = lastFlow
+        Log.log().info(
+            f"Criando TURBMINT = {endDate.month}"
+            + f" {endDate.year} {lastFlow}"
+        )
+        modif.data.add_after(newTurbminT, nextTurbminT)
+        return HTTPResponse(code=200, detail="success")
+
+    def apply_qtur_max_modif_rule(
+        self,
+        rule: ReservoirGroupRule,
+        modif: Modif,
+        hidr: pd.DataFrame,
+        confhd: Confhd,
+        dger: Dger,
+        code: int = None,
+    ):
+        if code is None:
+            code = rule.uheCode
+        # Se a regra não tem limite máximo, ignora
+        if rule.maxLimit is None:
+            return HTTPResponse(code=200, detail="ignored")
+
+        modifUhe = modif.modificacoes_usina(code)
+        # Se a usina em questão não é modificada, cria uma modificação nova
+        if modifUhe is None:
+            newUhe = USINA()
+            newUhe.codigo = code
+            newUhe.nome = str(hidr.at[code, "nome_usina"])
+            modif.data.append(newUhe)
+            Log.log().info(f"Criando novo registro USINA {code}")
+            confhd.usinas.loc[
+                confhd.usinas["codigo_usina"] == code, "usina_modificada"
+            ] = 1
+            Log.log().info(f"Modificando usina {code} no confhd.dat")
+        # Obtém o registro que modifica a usina
+        usina: USINA = modif.usina(codigo=code)
+
+        actualTurbmaxT = [m for m in modifUhe if isinstance(m, TURBMAXT)]
+        Log.log().info(
+            f"Existem {len(actualTurbmaxT)} TURBMAXT" + f" para a usina {code}"
+        )
+        # Guarda a vazão do primeiro TURBMAXT que tenha início após os
+        # 2 primeiros meses. Se não existir, assume valor do engolimento
+        # da usina.
+
+        caseDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        )
+        lastFlow = self.obtem_engolimento_usina(code, hidr)
+        if len(actualTurbmaxT) > 0:
+            for m in actualTurbmaxT:
+                lastFlow = m.turbinamento
+                startDate = m.data_inicio
+                if startDate >= caseDate + relativedelta(months=+2):
+                    break
+        Log.log().info(f"Último turbinamento = {lastFlow}")
+        for m in actualTurbmaxT:
+            # Deleta os TURBMAXT que iniciem nos 2 primeiros meses
+            startDate = m.data_inicio
+            if startDate < caseDate + relativedelta(months=+2):
+                modif.data.remove(m)
+        # Cria os TURBMAXT
+        # - O primeiro é válido para os 2 primeiros meses
+        newTurbmaxT = TURBMAXT()
+        newTurbmaxT.data_inicio = datetime(
+            dger.ano_inicio_estudo, dger.mes_inicio_estudo, 1
+        )
+        newTurbmaxT.turbinamento = rule.maxLimit
+        Log.log().info(
+            f"Criando TURBMAXT = {dger.mes_inicio_estudo}"
+            + f" {dger.ano_inicio_estudo} {rule.maxLimit}"
+        )
+        modif.data.add_after(usina, newTurbmaxT)
+        # - O segundo é para retornar ao valor anterior
+        endDate = datetime(
+            year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
+        ) + relativedelta(months=+2)
+        nextTurbmaxT = TURBMAXT()
+        newTurbmaxT.data_inicio = datetime(endDate.year, endDate.month, 1)
+        nextTurbmaxT.turbinamento = lastFlow
+        Log.log().info(
+            f"Criando TURBMINT = {endDate.month}"
+            + f" {endDate.year} {lastFlow}"
+        )
+        modif.data.add_after(newTurbmaxT, nextTurbmaxT)
+        return HTTPResponse(code=200, detail="success")
+
+    def apply_qtur_rule(
+        self,
+        rule: ReservoirRule,
+        hidr: pd.DataFrame,
+        modif: Modif,
+        re: Re,
+        confhd: Confhd,
+        dger: Dger,
+    ) -> HTTPResponse:
+        Log.log().info(f"Aplicando regra: {str(rule)}")
+        # No caso de existirem, aplica também nas fictícias
+        # Aplica a restrição de turbinamento mínimo, se houver,
+        # no modif.dat
+        modifMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_MODIF
+        if rule.minLimit is not None:
+            if rule.uheCode in modifMap.keys():
+                for code in modifMap[rule.uheCode]:
+                    res = self.apply_qtur_min_modif_rule(
+                        rule, modif, hidr, confhd, dger, code=code
+                    )
+                    if res.code != 200:
+                        return res
+            else:
+                res = self.apply_qtur_min_modif_rule(
+                    rule, modif, hidr, confhd, dger, code=code
+                )
+                if res.code != 200:
+                    return res
+        # Aplica a restrição de turbinamento máximo, se houver,
+        # no modif.dat
+        if rule.maxLimit is not None:
+            if rule.uheCode in modifMap.keys():
+                for code in modifMap[rule.uheCode]:
+                    res = self.apply_qtur_max_modif_rule(
+                        rule, modif, hidr, confhd, dger, code=code
+                    )
+                    if res.code != 200:
+                        return res
+            else:
+                res = self.apply_qtur_max_modif_rule(
+                    rule, modif, hidr, confhd, dger, code=code
+                )
+                if res.code != 200:
+                    return res
+        return HTTPResponse(code=200, detail="success")
+
     def apply_rule(
         self,
         rule: ReservoirRule,
@@ -430,42 +689,12 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         confhd: Confhd,
         dger: Dger,
     ) -> HTTPResponse:
-        if rule.constraintType == "QDEF":
-            Log.log().info(f"Aplicando regra: {str(rule)}")
-            # No caso de existirem, aplica também nas fictícias
-            # Aplica a restrição da defluência mínima, se houver,
-            # no modif.dat
-            modifMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_MODIF
-            if rule.minLimit is not None:
-                if rule.uheCode in modifMap.keys():
-                    for code in modifMap[rule.uheCode]:
-                        res = self.apply_qdef_modif_rule(
-                            rule, modif, hidr, confhd, dger, code=code
-                        )
-                        if res.code != 200:
-                            return res
-                else:
-                    res = self.apply_qdef_modif_rule(
-                        rule, modif, hidr, confhd, dger
-                    )
-                    if res.code != 200:
-                        return res
-            # Aplica a restrição da defluência máxima, se houver,
-            # no re.dat
-            mapa_re = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_RE
-            if rule.maxLimit is not None:
-                if rule.uheCode in mapa_re.keys():
-                    for code in mapa_re[rule.uheCode]:
-                        res = self.apply_qdef_re_rule(
-                            rule, re, hidr, dger, code=code
-                        )
-                        if res.code != 200:
-                            return res
-                else:
-                    res = self.apply_qdef_re_rule(rule, re, hidr, dger)
-                    if res.code != 200:
-                        return res
-        return HTTPResponse(code=200, detail="success")
+        rule_handler_map: Dict[str, Callable] = {
+            "QDEF": self.apply_qdef_rule,
+            "QTUR": self.apply_qtur_rule,
+        }
+        handler = rule_handler_map[rule.constraintType]
+        return handler(rule, hidr, modif, re, confhd, dger)
 
     async def apply(
         self,
@@ -633,88 +862,82 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             activeRulesByStage[stage] = activeRules
         return activeRulesByStage
 
+    def aplica_regra_qdef_qtur(
+        self, rule: ReservoirGroupRule, dadger: Dadger, estagio: int
+    ):
+        # Se vai aplicar uma regra em um determinado estágio
+        # acessa a restrição em todos os estágios futuros, até
+        # o limite, para garantir que os valores serão mantidos.
+        cqs: List[CQ] = dadger.cq()
+        if isinstance(cqs, CQ):
+            cqs = [cqs]
+        if isinstance(cqs, list):
+            cqs_usina = [c for c in cqs if c.codigo_usina == rule.uheCode]
+            if len(cqs_usina) > 0:
+                codigos_restricoes = [cq.codigo_restricao for cq in cqs_usina]
+            else:
+                codigos_restricoes = [cqs[-1].codigo_restricao + 1]
+                cqs_usinas = [CQ()]
+                cqs_usinas[0].codigo_restricao = cqs[-1].codigo_restricao + 1
+                cqs_usinas[0].estagio = 1
+                cqs_usinas[0].codigo_usina = rule.uheCode
+                cqs_usinas[0].coeficiente = 1
+                cqs_usinas[0].tipo = rule.constraintType
+            efs = [
+                dadger.hq(codigo_restricao=codigo).estagio_final
+                for codigo in codigos_restricoes
+            ]
+        # else:
+        #     for cq_usina, codigo in zip(cqs_usina, codigos_restricoes):
+        #         # Se não existe o registro HQ, cria, junto com um LQ
+        #         registros_dp = dadger.lista_registros(DP)
+        #         num_subsistemas = len(dadger.lista_registros(SB))
+        #         ef = int(len(registros_dp) / num_subsistemas)
+        #         Log.log().info(f"Criando HQ {codigo} - 1 {ef}")
+        #         hq_novo = HQ()
+        #         hq_novo._dados = [codigo, 1, ef]
+        #         lq_novo = LQ()
+        #         lq_novo._dados = [codigo, 1] + [
+        #             0,
+        #             99999,
+        #             0,
+        #             99999,
+        #             0,
+        #             99999,
+        #         ]
+        #         dadger.cria_registro(dadger.ev, hq_novo)
+        #         dadger.cria_registro(hq_novo, lq_novo)
+        #         dadger.cria_registro(lq_novo, cq_usina)
+        #     efs = [
+        #         dadger.hq(codigo).estagio_final
+        #         for codigo in codigos_restricoes
+        #     ]
+
+        for cq_usina, codigo, ef in zip(cqs_usina, codigos_restricoes, efs):
+            for e in range(estagio, ef + 1):
+                dadger.lq(codigo, e)
+            # Aplica a regra no estágio devido, se tiver limites inf/sup
+            if rule.minLimit is not None:
+                dadger.lq(codigo, estagio).limite_inferior = [
+                    rule.minLimit
+                ] * 3
+            if rule.maxLimit is not None:
+                dadger.lq(codigo, estagio).limite_superior = [
+                    rule.maxLimit
+                ] * 3
+
     def aplica_regra(
         self,
         dadger: Dadger,
         rule: ReservoirGroupRule,
         applicationStage: int,
     ) -> HTTPResponse:
-        def aplica_regra_qdef(
-            rule: ReservoirGroupRule, dadger: Dadger, estagio: int
-        ):
-            # Se vai aplicar uma regra em um determinado estágio
-            # acessa a restrição em todos os estágios futuros, até
-            # o limite, para garantir que os valores serão mantidos.
-            cqs: List[CQ] = dadger.cq()
-            if isinstance(cqs, CQ):
-                cqs = [cqs]
-            if isinstance(cqs, list):
-                cqs_usina = [c for c in cqs if c.codigo_usina == rule.uheCode]
-                if len(cqs_usina) > 0:
-                    codigos_restricoes = [
-                        cq.codigo_restricao for cq in cqs_usina
-                    ]
-                else:
-                    codigos_restricoes = [cqs[-1].codigo_restricao + 1]
-                    cqs_usinas = [CQ()]
-                    cqs_usinas[0].codigo_restricao = (
-                        cqs[-1].codigo_restricao + 1
-                    )
-                    cqs_usinas[0].estagio = 1
-                    cqs_usinas[0].codigo_usina = rule.uheCode
-                    cqs_usinas[0].coeficiente = 1
-                    cqs_usinas[0].tipo = rule.constraintType
-                efs = [
-                    dadger.hq(codigo_restricao=codigo).estagio_final
-                    for codigo in codigos_restricoes
-                ]
-            # else:
-            #     for cq_usina, codigo in zip(cqs_usina, codigos_restricoes):
-            #         # Se não existe o registro HQ, cria, junto com um LQ
-            #         registros_dp = dadger.lista_registros(DP)
-            #         num_subsistemas = len(dadger.lista_registros(SB))
-            #         ef = int(len(registros_dp) / num_subsistemas)
-            #         Log.log().info(f"Criando HQ {codigo} - 1 {ef}")
-            #         hq_novo = HQ()
-            #         hq_novo._dados = [codigo, 1, ef]
-            #         lq_novo = LQ()
-            #         lq_novo._dados = [codigo, 1] + [
-            #             0,
-            #             99999,
-            #             0,
-            #             99999,
-            #             0,
-            #             99999,
-            #         ]
-            #         dadger.cria_registro(dadger.ev, hq_novo)
-            #         dadger.cria_registro(hq_novo, lq_novo)
-            #         dadger.cria_registro(lq_novo, cq_usina)
-            #     efs = [
-            #         dadger.hq(codigo).estagio_final
-            #         for codigo in codigos_restricoes
-            #     ]
-
-            for cq_usina, codigo, ef in zip(
-                cqs_usina, codigos_restricoes, efs
-            ):
-                for e in range(estagio, ef + 1):
-                    dadger.lq(codigo, e)
-                # Aplica a regra no estágio devido, se tiver limites inf/sup
-                if rule.minLimit is not None:
-                    dadger.lq(codigo, estagio).limite_inferior = [
-                        rule.minLimit
-                    ] * 3
-                if rule.maxLimit is not None:
-                    dadger.lq(codigo, estagio).limite_superior = [
-                        rule.maxLimit
-                    ] * 3
-
         Log.log().info(
             f"Aplicando regra: {str(rule)} no estágio {applicationStage}"
         )
         # Se ocorrer algum erro, retorna False
-        if rule.constraintType == "QDEF":
-            aplica_regra_qdef(rule, dadger, applicationStage)
+        if rule.constraintType in ["QDEF", "QTUR"]:
+            self.aplica_regra_qdef_qtur(rule, dadger, applicationStage)
         else:
             return HTTPResponse(
                 code=500, detail=f"error applying rule {str(rule)}"
