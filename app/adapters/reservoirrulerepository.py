@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Dict, List, Union, Optional, Callable
 import pandas as pd
 from idecomp.decomp.dadger import Dadger
-from idecomp.decomp.modelos.dadger import CQ
+from idecomp.decomp.modelos.dadger import CQ, HQ, LQ
 from idecomp.decomp.relato import Relato
 from inewave.newave import Confhd, Modif, Re, Dger
 from inewave.newave.modelos.modif import (
@@ -365,7 +365,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         modif.data.add_after(newVazminT, nextVazminT)
         return HTTPResponse(code=200, detail="success")
 
-    def apply_qdef_re_rule(
+    def apply_qdef_qtur_max_re_rule(
         self,
         rule: ReservoirGroupRule,
         re: Re,
@@ -414,8 +414,8 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         constraints = constraints.drop(index=constraintsIndices)
 
         # Se a regra não tem limite máximo, ignora
-        qdef = rule.maxLimit
-        if qdef is None:
+        q_max = rule.maxLimit
+        if q_max is None:
             return HTTPResponse(code=200, detail="ignored")
 
         re.restricoes.loc[re.restricoes.shape[0], :] = [
@@ -425,7 +425,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             endDate.month,
             endDate.year,
             0,
-            self.obtem_ghmax_usina(code, qdef, hidr),
+            self.obtem_ghmax_usina(code, q_max, hidr),
             "REGRA ANA",
         ]
         return HTTPResponse(code=200, detail="success")
@@ -462,15 +462,10 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # no re.dat
         mapa_re = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_RE
         if rule.maxLimit is not None:
-            if rule.uheCode in mapa_re.keys():
-                for code in mapa_re[rule.uheCode]:
-                    res = self.apply_qdef_re_rule(
-                        rule, re, hidr, dger, code=code
-                    )
-                    if res.code != 200:
-                        return res
-            else:
-                res = self.apply_qdef_re_rule(rule, re, hidr, dger)
+            for code in mapa_re.get(rule.uheCode, [rule.uheCode]):
+                res = self.apply_qdef_qtur_max_re_rule(
+                    rule, re, hidr, dger, code=code
+                )
                 if res.code != 200:
                     return res
         return HTTPResponse(code=200, detail="success")
@@ -649,35 +644,27 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # no modif.dat
         modifMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_MODIF
         if rule.minLimit is not None:
-            if rule.uheCode in modifMap.keys():
-                for code in modifMap[rule.uheCode]:
-                    res = self.apply_qtur_min_modif_rule(
-                        rule, modif, hidr, confhd, dger, code=code
-                    )
-                    if res.code != 200:
-                        return res
-            else:
+            for code in modifMap.get(rule.uheCode, [rule.uheCode]):
                 res = self.apply_qtur_min_modif_rule(
                     rule, modif, hidr, confhd, dger, code=code
                 )
                 if res.code != 200:
                     return res
+
         # Aplica a restrição de turbinamento máximo, se houver,
         # no modif.dat
         if rule.maxLimit is not None:
-            if rule.uheCode in modifMap.keys():
-                for code in modifMap[rule.uheCode]:
-                    res = self.apply_qtur_max_modif_rule(
-                        rule, modif, hidr, confhd, dger, code=code
-                    )
-                    if res.code != 200:
-                        return res
-            else:
+            for code in modifMap.get(rule.uheCode, [rule.uheCode]):
                 res = self.apply_qtur_max_modif_rule(
                     rule, modif, hidr, confhd, dger, code=code
                 )
                 if res.code != 200:
                     return res
+                res = self.apply_qdef_qtur_max_re_rule(rule, re,hidr,dger,code)
+                if res.code != 200:
+                    return res
+
+
         return HTTPResponse(code=200, detail="success")
 
     def apply_rule(
@@ -872,48 +859,48 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         if isinstance(cqs, CQ):
             cqs = [cqs]
         if isinstance(cqs, list):
-            cqs_usina = [c for c in cqs if c.codigo_usina == rule.uheCode]
+            cqs_usina = [
+                c
+                for c in cqs
+                if (
+                    (c.codigo_usina == rule.uheCode)
+                    and (c.tipo == rule.constraintType)
+                )
+            ]
+            # TODO - Não está tratanto restrições conjuntas.
+            # Para todos os CQs encontrados para a usina, filtra por código de HQ
+            # e elimina as HQs com mais de um CQ.
             if len(cqs_usina) > 0:
                 codigos_restricoes = [cq.codigo_restricao for cq in cqs_usina]
             else:
-                codigos_restricoes = [cqs[-1].codigo_restricao + 1]
-                cqs_usinas = [CQ()]
-                cqs_usinas[0].codigo_restricao = cqs[-1].codigo_restricao + 1
-                cqs_usinas[0].estagio = 1
-                cqs_usinas[0].codigo_usina = rule.uheCode
-                cqs_usinas[0].coeficiente = 1
-                cqs_usinas[0].tipo = rule.constraintType
+                codigo_nova_restricao = cqs[-1].codigo_restricao + 1
+                codigos_restricoes = [codigo_nova_restricao]
+                estagio_final = len(dadger.dp(codigo_submercado=1))
+
+                hq_novo = HQ()
+                hq_novo.codigo_restricao = codigo_nova_restricao
+                hq_novo.estagio_inicial = 1
+                hq_novo.estagio_final = estagio_final
+                dadger.data.add_after(cqs[-1], hq_novo)
+
+                lq_novo = LQ()
+                lq_novo.codigo_restricao = codigo_nova_restricao
+                lq_novo.estagio = 1
+                dadger.data.add_after(hq_novo, lq_novo)
+
+                cq_novo = CQ()
+                cq_novo.codigo_restricao = codigo_nova_restricao
+                cq_novo.estagio = 1
+                cq_novo.codigo_usina = rule.uheCode
+                cq_novo.coeficiente = 1
+                cq_novo.tipo = rule.constraintType
+                dadger.data.add_after(lq_novo, cq_novo)
             efs = [
                 dadger.hq(codigo_restricao=codigo).estagio_final
                 for codigo in codigos_restricoes
             ]
-        # else:
-        #     for cq_usina, codigo in zip(cqs_usina, codigos_restricoes):
-        #         # Se não existe o registro HQ, cria, junto com um LQ
-        #         registros_dp = dadger.lista_registros(DP)
-        #         num_subsistemas = len(dadger.lista_registros(SB))
-        #         ef = int(len(registros_dp) / num_subsistemas)
-        #         Log.log().info(f"Criando HQ {codigo} - 1 {ef}")
-        #         hq_novo = HQ()
-        #         hq_novo._dados = [codigo, 1, ef]
-        #         lq_novo = LQ()
-        #         lq_novo._dados = [codigo, 1] + [
-        #             0,
-        #             99999,
-        #             0,
-        #             99999,
-        #             0,
-        #             99999,
-        #         ]
-        #         dadger.cria_registro(dadger.ev, hq_novo)
-        #         dadger.cria_registro(hq_novo, lq_novo)
-        #         dadger.cria_registro(lq_novo, cq_usina)
-        #     efs = [
-        #         dadger.hq(codigo).estagio_final
-        #         for codigo in codigos_restricoes
-        #     ]
 
-        for cq_usina, codigo, ef in zip(cqs_usina, codigos_restricoes, efs):
+        for codigo, ef in zip(codigos_restricoes, efs):
             for e in range(estagio, ef + 1):
                 dadger.lq(codigo, e)
             # Aplica a regra no estágio devido, se tiver limites inf/sup
