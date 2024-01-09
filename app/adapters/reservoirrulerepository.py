@@ -264,7 +264,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         vol65 = volmin + 0.65 * volutil
         hjus = hidr.at[code, "canal_fuga_medio"]
         hmon = apply_poly(
-            [hidr.at[code, f"a_{i}_volume_cota"] for i in range(5)], vol65
+            [hidr.at[code, f"a{i}_volume_cota"] for i in range(5)], vol65
         )
         losses = hidr.at[code, "perdas"]
         hliq = hmon - hjus - losses
