@@ -270,10 +270,18 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         hliq = hmon - hjus - losses
         prod = hidr.at[code, "produtibilidade_especifica"]
         avg_prod = prod * hliq
-        return avg_prod * qdef
+        vazao_limitada = min([self.obtem_engolimento_usina(code, hidr), qdef])
+        return avg_prod * vazao_limitada
 
     def obtem_engolimento_usina(self, code: int, hidr: pd.DataFrame) -> float:
-        pass
+        engol_usi = 0
+        n_conj = hidr.at[code, "numero_conjuntos_maquinas"]
+        for i in range(1, n_conj + 1):
+            engol_usi += (
+                hidr.at[code, f"maquinas_conjunto_{i}"]
+                * hidr.at[code, f"vazao_nominal_conjunto_{i}"]
+            )
+        return engol_usi
 
     def apply_qdef_modif_rule(
         self,
@@ -660,10 +668,11 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 )
                 if res.code != 200:
                     return res
-                res = self.apply_qdef_qtur_max_re_rule(rule, re,hidr,dger,code)
+                res = self.apply_qdef_qtur_max_re_rule(
+                    rule, re, hidr, dger, code
+                )
                 if res.code != 200:
                     return res
-
 
         return HTTPResponse(code=200, detail="success")
 
