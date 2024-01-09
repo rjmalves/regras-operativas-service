@@ -110,48 +110,56 @@ class AbstractReservoirRuleRepository:
         # superiores e inferiores de defluência.
         groupedRules: List[ReservoirRule] = []
         uhes = list(set([r.uheCode for r in rules]))
-        for u in uhes:
-            uheLabels = list(set([r.label for r in rules if r.uheCode == u]))
-            for f in uheLabels:
-                frequencies = list(
-                    set(
-                        [
-                            r.frequency
-                            for r in rules
-                            if r.uheCode == u and r.label == f
-                        ]
-                    )
+        variaveis = list(set([r.constraintType for r in rules]))
+
+        for variavel in variaveis:
+            for u in uhes:
+                uheLabels = list(
+                    set([r.label for r in rules if r.uheCode == u])
                 )
-                # TODO - suportar QTUR
-                for p in frequencies:
-                    uheRules = ReservoirGroupRule(
-                        reservoirCodes=[],
-                        uheCode=u,
-                        constraintType="QDEF",
-                        month=0,
-                        minVolume=0.0,
-                        maxVolume=0.0,
-                        minLimit=0.0,
-                        maxLimit=0.0,
-                        frequency=p,
-                        label=f,
+                for f in uheLabels:
+                    frequencies = list(
+                        set(
+                            [
+                                r.frequency
+                                for r in rules
+                                if r.uheCode == u and r.label == f
+                            ]
+                        )
                     )
-                    singleRules = [
-                        r
-                        for r in rules
-                        if r.uheCode == u and r.label == f and r.frequency == p
-                    ]
-                    for r in singleRules:
-                        uheRules.reservoirCodes.append(r.reservoirCode)
-                        uheRules.minVolume += r.minVolume
-                        uheRules.maxVolume += r.maxVolume
-                        uheRules.minLimit = r.minLimit
-                        uheRules.maxLimit = r.maxLimit
-                        uheRules.month = r.month
-                    uheRules.reservoirCodes = list(
-                        set(uheRules.reservoirCodes)
-                    )
-                    groupedRules.append(uheRules)
+                    # TODO - suportar QTUR
+                    for p in frequencies:
+                        uheRules = ReservoirGroupRule(
+                            reservoirCodes=[],
+                            uheCode=u,
+                            constraintType=variavel,
+                            month=0,
+                            minVolume=0.0,
+                            maxVolume=0.0,
+                            minLimit=0.0,
+                            maxLimit=0.0,
+                            frequency=p,
+                            label=f,
+                        )
+                        singleRules = [
+                            r
+                            for r in rules
+                            if r.uheCode == u
+                            and r.label == f
+                            and r.frequency == p
+                            and r.constraintType == variavel
+                        ]
+                        for r in singleRules:
+                            uheRules.reservoirCodes.append(r.reservoirCode)
+                            uheRules.minVolume += r.minVolume
+                            uheRules.maxVolume += r.maxVolume
+                            uheRules.minLimit = r.minLimit
+                            uheRules.maxLimit = r.maxLimit
+                            uheRules.month = r.month
+                        uheRules.reservoirCodes = list(
+                            set(uheRules.reservoirCodes)
+                        )
+                        groupedRules.append(uheRules)
         return groupedRules
 
     @abstractmethod
