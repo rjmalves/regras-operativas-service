@@ -108,14 +108,21 @@ class AbstractReservoirRuleRepository:
         # Assume-se que os reservatórios que compõe o equivalente
         # para cálculo do limite de defluência tem os mesmos limites
         # superiores e inferiores de defluência.
-        groupedRules: List[ReservoirRule] = []
+        groupedRules: List[ReservoirGroupRule] = []
         uhes = list(set([r.uheCode for r in rules]))
-        variaveis = list(set([r.constraintType for r in rules]))
+        tipos = list(set([r.constraintType for r in rules]))
 
-        for variavel in variaveis:
+        for tipo in tipos:
             for u in uhes:
                 uheLabels = list(
-                    set([r.label for r in rules if r.uheCode == u])
+                    set(
+                        [
+                            r.label
+                            for r in rules
+                            if (r.uheCode == u)
+                            and (r.constraintType == tipo)
+                        ]
+                    )
                 )
                 for f in uheLabels:
                     frequencies = list(
@@ -123,16 +130,15 @@ class AbstractReservoirRuleRepository:
                             [
                                 r.frequency
                                 for r in rules
-                                if r.uheCode == u and r.label == f
+                                if (r.uheCode == u) and (r.label == f) and (r.constraintType == tipo)
                             ]
                         )
                     )
-                    # TODO - suportar QTUR
                     for p in frequencies:
                         uheRules = ReservoirGroupRule(
                             reservoirCodes=[],
                             uheCode=u,
-                            constraintType=variavel,
+                            constraintType=tipo,
                             month=0,
                             minVolume=0.0,
                             maxVolume=0.0,
@@ -147,7 +153,7 @@ class AbstractReservoirRuleRepository:
                             if r.uheCode == u
                             and r.label == f
                             and r.frequency == p
-                            and r.constraintType == variavel
+                            and r.constraintType == tipo
                         ]
                         for r in singleRules:
                             uheRules.reservoirCodes.append(r.reservoirCode)
@@ -372,7 +378,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
         ) + relativedelta(months=+2)
         nextVazminT = VAZMINT()
-        newVazminT.data_inicio = datetime(endDate.year, endDate.month, 1)
+        nextVazminT.data_inicio = datetime(endDate.year, endDate.month, 1)
         nextVazminT.vazao = lastFlow
         Log.log().info(
             f"Criando VAZMINT = {endDate.month}"
@@ -556,7 +562,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
         ) + relativedelta(months=+2)
         nextTurbminT = TURBMINT()
-        newTurbminT.data_inicio = datetime(endDate.year, endDate.month, 1)
+        nextTurbminT.data_inicio = datetime(endDate.year, endDate.month, 1)
         nextTurbminT.turbinamento = lastFlow
         Log.log().info(
             f"Criando TURBMINT = {endDate.month}"
@@ -625,7 +631,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         newTurbmaxT.data_inicio = datetime(
             dger.ano_inicio_estudo, dger.mes_inicio_estudo, 1
         )
-        newTurbmaxT.turbinamento = rule.maxLimit
+        newTurbmaxT.turbinamento = min(
+            [rule.maxLimit, self.obtem_engolimento_usina(code, hidr)]
+        )
         Log.log().info(
             f"Criando TURBMAXT = {dger.mes_inicio_estudo}"
             + f" {dger.ano_inicio_estudo} {rule.maxLimit}"
@@ -636,7 +644,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             year=dger.ano_inicio_estudo, month=dger.mes_inicio_estudo, day=1
         ) + relativedelta(months=+2)
         nextTurbmaxT = TURBMAXT()
-        newTurbmaxT.data_inicio = datetime(endDate.year, endDate.month, 1)
+        nextTurbmaxT.data_inicio = datetime(endDate.year, endDate.month, 1)
         nextTurbmaxT.turbinamento = lastFlow
         Log.log().info(
             f"Criando TURBMINT = {endDate.month}"
