@@ -235,9 +235,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Obtém os volumes
         activeRulesByStage: Dict[int, List[ReservoirGroupRule]] = {}
         stage = int(
-            [c for c in list(uheVolumesHm3.columns) if "estagio" in c][
+            [c for c in list(uheVolumesHm3.columns) if "estagio_" in c][
                 -1
-            ].split("estagio")[1]
+            ].split("estagio_")[1]
         )
         # Obtém as regras ativas para cada usina
         uhesWithRules = list(set([r.uheCode for r in rules]))
