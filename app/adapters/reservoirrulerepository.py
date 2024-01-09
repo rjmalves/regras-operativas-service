@@ -199,18 +199,19 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         volumes: pd.DataFrame,
         stage: int,
     ) -> Optional[ReservoirGroupRule]:
-        reservoirCodes = next(
-            r.reservoirCodes
-            for r in rules
-            if (r.uheCode == uheCode) and (r.constraintType == constraintType)
-        )
-        totalVolume = float(
-            volumes.loc[
-                volumes["codigo_usina"].isin(reservoirCodes),
-                f"estagio_{stage}",
-            ].sum()
-        )
         try:
+            reservoirCodes = next(
+                r.reservoirCodes
+                for r in rules
+                if (r.uheCode == uheCode)
+                and (r.constraintType == constraintType)
+            )
+            totalVolume = float(
+                volumes.loc[
+                    volumes["codigo_usina"].isin(reservoirCodes),
+                    f"estagio_{stage}",
+                ].sum()
+            )
             rule = None
             for r in rules:
                 if all(
