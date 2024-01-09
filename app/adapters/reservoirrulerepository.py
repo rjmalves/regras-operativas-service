@@ -200,6 +200,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         stage: int,
     ) -> Optional[ReservoirGroupRule]:
         try:
+            reservoirCodes = []
             reservoirCodes = next(
                 r.reservoirCodes
                 for r in rules
@@ -225,13 +226,14 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             if rule is None:
                 raise StopIteration()
         except StopIteration:
-            Log.log().warning(
-                "Não foi encontrada regra de operação ativa "
-                + f"| {constraintType} | "
-                + f"para a usina {uheCode} "
-                + f"(reservatórios {reservoirCodes}) "
-                + f"no volume {totalVolume}"
-            )
+            if len(reservoirCodes) > 0:
+                Log.log().warning(
+                    "Não foi encontrada regra de operação ativa "
+                    + f"| {constraintType} | "
+                    + f"para a usina {uheCode} "
+                    + f"(reservatórios {reservoirCodes}) "
+                    + f"no volume {totalVolume}"
+                )
             rule = None
         return rule
 
