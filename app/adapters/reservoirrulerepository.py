@@ -156,17 +156,18 @@ class AbstractReservoirRuleRepository:
                             and r.frequency == p
                             and r.constraintType == tipo
                         ]
-                        for r in singleRules:
-                            uheRules.reservoirCodes.append(r.reservoirCode)
-                            uheRules.minVolume += r.minVolume
-                            uheRules.maxVolume += r.maxVolume
-                            uheRules.minLimit = r.minLimit
-                            uheRules.maxLimit = r.maxLimit
-                            uheRules.month = r.month
-                        uheRules.reservoirCodes = list(
-                            set(uheRules.reservoirCodes)
-                        )
-                        groupedRules.append(uheRules)
+                        if len(singleRules) > 0:
+                            for r in singleRules:
+                                uheRules.reservoirCodes.append(r.reservoirCode)
+                                uheRules.minVolume += r.minVolume
+                                uheRules.maxVolume += r.maxVolume
+                                uheRules.minLimit = r.minLimit
+                                uheRules.maxLimit = r.maxLimit
+                                uheRules.month = r.month
+                            uheRules.reservoirCodes = list(
+                                set(uheRules.reservoirCodes)
+                            )
+                            groupedRules.append(uheRules)
         return groupedRules
 
     @abstractmethod
@@ -472,7 +473,6 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         confhd: Confhd,
         dger: Dger,
     ) -> HTTPResponse:
-        Log.log().info(f"Aplicando regra: {str(rule)}")
         # No caso de existirem, aplica também nas fictícias
         # Aplica a restrição da defluência mínima, se houver,
         # no modif.dat
@@ -673,7 +673,6 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         confhd: Confhd,
         dger: Dger,
     ) -> HTTPResponse:
-        Log.log().info(f"Aplicando regra: {str(rule)}")
         # No caso de existirem, aplica também nas fictícias
         # Aplica a restrição de turbinamento mínimo, se houver,
         # no modif.dat
@@ -718,6 +717,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             "QDEF": self.apply_qdef_rule,
             "QTUR": self.apply_qtur_rule,
         }
+        Log.log().info(f"Aplicando regra: {str(rule)}")
         handler = rule_handler_map[rule.constraintType]
         return handler(rule, hidr, modif, re, confhd, dger)
 
