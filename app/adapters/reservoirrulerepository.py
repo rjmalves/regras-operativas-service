@@ -220,6 +220,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 if all(
                     [
                         r.uheCode == uheCode,
+                        r.constraintType == constraintType,
                         r.minVolume <= totalVolume < r.maxVolume,
                     ]
                 ):
@@ -410,6 +411,15 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
     ):
         if code is None:
             code = rule.uheCode
+        # Se a regra não tem limite máximo, ignora
+        q_max = rule.maxLimit
+        engolimento = self.obtem_engolimento_usina(code, hidr)
+        if q_max is None:
+            return HTTPResponse(code=200, detail="ignored")
+        # Se a vazão é maior que o turbinamento, ignora
+        if q_max > engolimento:
+            return HTTPResponse(code=200, detail="ignored")
+        
         # Se não existe um conjunto com a usina em questão, cria.
         setDfs = re.usinas_conjuntos
         sets = list(setDfs["conjunto"].unique())
@@ -447,11 +457,6 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             :,
         ].index
         constraints = constraints.drop(index=constraintsIndices)
-
-        # Se a regra não tem limite máximo, ignora
-        q_max = rule.maxLimit
-        if q_max is None:
-            return HTTPResponse(code=200, detail="ignored")
 
         re.restricoes.loc[re.restricoes.shape[0], :] = [
             setNumber,
@@ -790,7 +795,8 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         regras_ativas = self.identify_active_rules(
             regras_agrupadas, volumes_relato_hm3
         )
-        Log.log().info(f"Regras ativas: {[str(r) for r in regras_ativas]}")
+        for e in regras_ativas.keys():
+            Log.log().info(f"Regras ativas estagio {e}: {[str(r) for r in regras_ativas[e]]}")
 
         # Para o NEWAVE, são sempre tomadas as regras vigentes para os
         # volumes do últimos estágio semanal do último DECOMP do mês anterior
@@ -835,24 +841,30 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         self,
         rules: List[ReservoirGroupRule],
         uheCode: int,
+        constraintType: str,
         volumes: pd.DataFrame,
         estagio: int,
     ) -> Optional[ReservoirGroupRule]:
-        reservoirCodes = next(
-            r.reservoirCodes for r in rules if r.uheCode == uheCode
-        )
-        totalVolume = float(
-            volumes.loc[
-                volumes["codigo_usina"].isin(reservoirCodes),
-                f"estagio_{estagio}",
-            ].sum()
-        )
         try:
+            reservoirCodes = []
+            reservoirCodes = next(
+                r.reservoirCodes
+                for r in rules
+                if (r.uheCode == uheCode)
+                and (r.constraintType == constraintType)
+            )
+            totalVolume = float(
+                volumes.loc[
+                    volumes["codigo_usina"].isin(reservoirCodes),
+                    f"estagio_{estagio}",
+                ].sum()
+            )
             rule = None
             for r in rules:
                 if all(
                     [
                         r.uheCode == uheCode,
+                        r.constraintType == constraintType,
                         r.minVolume <= totalVolume < r.maxVolume,
                     ]
                 ):
@@ -861,12 +873,13 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             if rule is None:
                 raise StopIteration()
         except StopIteration:
-            Log.log().warning(
-                "Não foi encontrada regra de operação ativa "
-                + f"para a usina {uheCode} "
-                + f"(reservatórios {reservoirCodes}) "
-                + f"no volume {totalVolume}"
-            )
+            if len(reservoirCodes) > 0:
+                Log.log().warning(
+                    "Não foi encontrada regra de operação ativa "
+                    + f"para a usina {uheCode} "
+                    + f"(reservatórios {reservoirCodes}) "
+                    + f"no volume {totalVolume}"
+                )
             rule = None
         return rule
 
@@ -879,13 +892,15 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Obtém as regras ativas para cada usina
         for stage, rulesInStage in rules.items():
             uhesWithRules = list(set([r.uheCode for r in rulesInStage]))
+            constraintTypes = list(set([r.constraintType for r in rulesInStage]))
             activeRules: List[ReservoirGroupRule] = []
-            for u in uhesWithRules:
-                stageRule = self.identifica_regra_ativa(
-                    rules[stage], u, uheVolumesHm3, stage
-                )
-                if stageRule is not None:
-                    activeRules.append(stageRule)
+            for t in constraintTypes:
+                for u in uhesWithRules:
+                    stageRule = self.identifica_regra_ativa(
+                        rules[stage], u, t, uheVolumesHm3, stage
+                    )
+                    if stageRule is not None:
+                        activeRules.append(stageRule)
             activeRulesByStage[stage] = activeRules
         return activeRulesByStage
 
