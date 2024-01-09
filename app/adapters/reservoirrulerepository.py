@@ -168,6 +168,7 @@ class AbstractReservoirRuleRepository:
                                 set(uheRules.reservoirCodes)
                             )
                             groupedRules.append(uheRules)
+                            Log.log().info(f"Regra agrupada: {str(uheRules)}")
         return groupedRules
 
     @abstractmethod
@@ -789,6 +790,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         regras_ativas = self.identify_active_rules(
             regras_agrupadas, volumes_relato_hm3
         )
+        Log.log().info(f"Regras ativas: {[str(r) for r in regras_ativas]}")
 
         # Para o NEWAVE, são sempre tomadas as regras vigentes para os
         # volumes do últimos estágio semanal do último DECOMP do mês anterior
