@@ -119,8 +119,7 @@ class AbstractReservoirRuleRepository:
                         [
                             r.label
                             for r in rules
-                            if (r.uheCode == u)
-                            and (r.constraintType == tipo)
+                            if (r.uheCode == u) and (r.constraintType == tipo)
                         ]
                     )
                 )
@@ -130,7 +129,9 @@ class AbstractReservoirRuleRepository:
                             [
                                 r.frequency
                                 for r in rules
-                                if (r.uheCode == u) and (r.label == f) and (r.constraintType == tipo)
+                                if (r.uheCode == u)
+                                and (r.label == f)
+                                and (r.constraintType == tipo)
                             ]
                         )
                     )
@@ -194,11 +195,14 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         self,
         rules: List[ReservoirGroupRule],
         uheCode: int,
+        constraintType: str,
         volumes: pd.DataFrame,
         stage: int,
     ) -> Optional[ReservoirGroupRule]:
         reservoirCodes = next(
-            r.reservoirCodes for r in rules if r.uheCode == uheCode
+            r.reservoirCodes
+            for r in rules
+            if (r.uheCode == uheCode) and (r.constraintType == constraintType)
         )
         totalVolume = float(
             volumes.loc[
@@ -222,6 +226,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         except StopIteration:
             Log.log().warning(
                 "Não foi encontrada regra de operação ativa "
+                + f"| {constraintType} | "
                 + f"para a usina {uheCode} "
                 + f"(reservatórios {reservoirCodes}) "
                 + f"no volume {totalVolume}"
@@ -255,13 +260,16 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         )
         # Obtém as regras ativas para cada usina
         uhesWithRules = list(set([r.uheCode for r in rules]))
+        constraintTypes = list(set([r.constraintType for r in rules]))
         activeRules: List[ReservoirGroupRule] = []
-        for u in uhesWithRules:
-            rulesInStage = self.identify_active_rule(
-                rules, u, uheVolumesHm3, stage
-            )
-            if rulesInStage is not None:
-                activeRules.append(rulesInStage)
+
+        for t in constraintTypes:
+            for u in uhesWithRules:
+                rulesInStage = self.identify_active_rule(
+                    rules, u, t, uheVolumesHm3, stage
+                )
+                if rulesInStage is not None:
+                    activeRules.append(rulesInStage)
         activeRulesByStage[stage] = activeRules
         return activeRulesByStage
 
@@ -676,7 +684,8 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                     return res
 
         # Aplica a restrição de turbinamento máximo, se houver,
-        # no modif.dat
+        # no modif.dat e no re.dat
+        reMap = NEWAVEReservoirRuleRepository.MAPA_FICTICIAS_RE
         if rule.maxLimit is not None:
             for code in modifMap.get(rule.uheCode, [rule.uheCode]):
                 res = self.apply_qtur_max_modif_rule(
@@ -684,6 +693,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 )
                 if res.code != 200:
                     return res
+            for code in reMap.get(rule.uheCode, [rule.uheCode]):
                 res = self.apply_qdef_qtur_max_re_rule(
                     rule, re, hidr, dger, code
                 )
