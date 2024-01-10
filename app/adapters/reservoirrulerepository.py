@@ -189,7 +189,6 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         178: [172, 176, 178],
     }
     MAPA_FICTICIAS_RE: Dict[int, List[int]] = {
-        156: [156],
         178: [172, 176, 178],
     }
 
@@ -419,22 +418,27 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Se a vazão é maior que o turbinamento, ignora
         if q_max > engolimento:
             return HTTPResponse(code=200, detail="ignored")
-        
+
         # Se não existe um conjunto com a usina em questão, cria.
-        setDfs = re.usinas_conjuntos
+        setDfs = re.usinas_conjuntos.reset_index(drop=True)
+        Log.log().info("Conjuntos antes da regra:")
+        Log.log().info(setDfs)
         sets = list(setDfs["conjunto"].unique())
         if code not in setDfs["codigo_usina"].to_numpy():
             Log.log().info(f"Criando conjunto com usina {code}")
             setNumber = max(sets) + 1
-            re.usinas_conjuntos.loc[re.usinas_conjuntos.shape[0], :] = [
+            setDfs.loc[setDfs.shape[0], :] = [
                 setNumber,
                 code,
             ]
-            setDfs = re.usinas_conjuntos
         # Senão, identifica.
         setNumber = setDfs.loc[
             setDfs["codigo_usina"] == code, "conjunto"
         ].iloc[0]
+        Log.log().info("Conjuntos depois da regra:")
+        Log.log().info(setDfs)
+        re.usinas_conjuntos = setDfs
+        Log.log().info(f"Conjunto com usina {code}: {setNumber}")
         # Cria as restrições para o conjunto em questão, nos 2 primeiros
         # meses do horizonte
         startDate = datetime(
@@ -443,8 +447,11 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         endDate = startDate + relativedelta(months=+1)
         # Deleta as restrições do conjunto em questão, se existirem e começarem
         # em algum dos 2 primeiros meses
-        constraints = re.restricoes
-        constraintsIndices = constraints.loc[
+        constraints = re.restricoes.copy()
+        Log.log().info("Restrições antes da regra:")
+        Log.log().info(constraints)
+        # TODO - apagar hard por conjunto
+        setConstraints = constraints.loc[
             (constraints["conjunto"] == setNumber)
             & (
                 (constraints["mes_inicio"] == startDate.month)
@@ -455,10 +462,12 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 | (constraints["ano_inicio"] == endDate.year)
             ),
             :,
-        ].index
-        constraints = constraints.drop(index=constraintsIndices)
+        ]
+        if setConstraints.shape[0] > 0:
+            Log.log().info(f"Deletando restrições do conjunto {code}: {setNumber}")
+        constraints = constraints.drop(index=setConstraints.index).reset_index(drop=True)
 
-        re.restricoes.loc[re.restricoes.shape[0], :] = [
+        constraints.loc[constraints.shape[0], :] = [
             setNumber,
             startDate.month,
             startDate.year,
@@ -468,6 +477,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             self.obtem_ghmax_usina(code, q_max, hidr),
             "REGRA ANA",
         ]
+        re.restricoes = constraints
+        Log.log().info("Restrições depois da regra:")
+        Log.log().info(constraints)
         return HTTPResponse(code=200, detail="success")
 
     def apply_qdef_rule(
@@ -664,7 +676,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         nextTurbmaxT.data_inicio = datetime(endDate.year, endDate.month, 1)
         nextTurbmaxT.turbinamento = lastFlow
         Log.log().info(
-            f"Criando TURBMINT = {endDate.month}"
+            f"Criando TURBMAXT = {endDate.month}"
             + f" {endDate.year} {lastFlow}"
         )
         modif.data.add_after(newTurbmaxT, nextTurbmaxT)
