@@ -442,10 +442,11 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             setNumber = None
         # Só atribui o dataframe com novo conjunto criado
         # se a vazão for menor que o engolimento
-        if not q_max_maior_engolimento:
-            Log.log().info("Conjuntos depois da regra:")
-            Log.log().info(setDfs)
-            re.usinas_conjuntos = setDfs
+        if q_max_maior_engolimento:
+            setDfs = setDfs.loc[setDfs["conjunto"] != setNumber, :]
+        re.usinas_conjuntos = setDfs
+        Log.log().info("Conjuntos depois da regra:")
+        Log.log().info(setDfs)
         Log.log().info(f"Conjunto com usina {code}: {setNumber}")
         # Cria as restrições para o conjunto em questão, nos 2 primeiros
         # meses do horizonte
