@@ -423,7 +423,10 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         Log.log().info("Conjuntos antes da regra:")
         Log.log().info(setDfs)
         sets = list(setDfs["conjunto"].unique())
-        if code not in setDfs["codigo_usina"].to_numpy():
+        if (
+            code not in setDfs["codigo_usina"].to_numpy()
+            and not q_max_maior_engolimento
+        ):
             Log.log().info(f"Criando conjunto com usina {code}")
             setNumber = max(sets) + 1
             setDfs.loc[setDfs.shape[0], :] = [
@@ -431,9 +434,12 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 code,
             ]
         # Senão, identifica.
-        setNumber = setDfs.loc[
-            setDfs["codigo_usina"] == code, "conjunto"
-        ].iloc[0]
+        try:
+            setNumber = setDfs.loc[
+                setDfs["codigo_usina"] == code, "conjunto"
+            ].iloc[0]
+        except Exception:
+            setNumber = None
         # Só atribui o dataframe com novo conjunto criado
         # se a vazão for menor que o engolimento
         if not q_max_maior_engolimento:
