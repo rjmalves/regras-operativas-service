@@ -416,8 +416,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         if q_max is None:
             return HTTPResponse(code=200, detail="ignored")
         # Se a vazão é maior que o turbinamento, ignora
-        if q_max > engolimento:
-            return HTTPResponse(code=200, detail="ignored")
+        q_max_maior_engolimento = q_max > engolimento
 
         # Se não existe um conjunto com a usina em questão, cria.
         setDfs = re.usinas_conjuntos.reset_index(drop=True)
@@ -435,9 +434,12 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         setNumber = setDfs.loc[
             setDfs["codigo_usina"] == code, "conjunto"
         ].iloc[0]
-        Log.log().info("Conjuntos depois da regra:")
-        Log.log().info(setDfs)
-        re.usinas_conjuntos = setDfs
+        # Só atribui o dataframe com novo conjunto criado
+        # se a vazão for menor que o engolimento
+        if not q_max_maior_engolimento:
+            Log.log().info("Conjuntos depois da regra:")
+            Log.log().info(setDfs)
+            re.usinas_conjuntos = setDfs
         Log.log().info(f"Conjunto com usina {code}: {setNumber}")
         # Cria as restrições para o conjunto em questão, nos 2 primeiros
         # meses do horizonte
@@ -450,7 +452,6 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
         constraints = re.restricoes.copy()
         Log.log().info("Restrições antes da regra:")
         Log.log().info(constraints)
-        # TODO - apagar hard por conjunto
         setConstraints = constraints.loc[
             (constraints["conjunto"] == setNumber)
             & (
@@ -464,23 +465,32 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             :,
         ]
         if setConstraints.shape[0] > 0:
-            Log.log().info(f"Deletando restrições do conjunto {code}: {setNumber}")
-        constraints = constraints.drop(index=setConstraints.index).reset_index(drop=True)
+            Log.log().info(
+                f"Deletando restrições do conjunto {code}: {setNumber}"
+            )
+        constraints = constraints.drop(index=setConstraints.index).reset_index(
+            drop=True
+        )
 
-        constraints.loc[constraints.shape[0], :] = [
-            setNumber,
-            startDate.month,
-            startDate.year,
-            endDate.month,
-            endDate.year,
-            0,
-            self.obtem_ghmax_usina(code, q_max, hidr),
-            "REGRA ANA",
-        ]
+        # Só cria novas restrições se a vazão for menor que o engolimento
+        if not q_max_maior_engolimento:
+            constraints.loc[constraints.shape[0], :] = [
+                setNumber,
+                startDate.month,
+                startDate.year,
+                endDate.month,
+                endDate.year,
+                0,
+                self.obtem_ghmax_usina(code, q_max, hidr),
+                "REGRA ANA",
+            ]
         re.restricoes = constraints
         Log.log().info("Restrições depois da regra:")
         Log.log().info(constraints)
-        return HTTPResponse(code=200, detail="success")
+        if q_max_maior_engolimento:
+            return HTTPResponse(code=200, detail="ignored")
+        else:
+            return HTTPResponse(code=200, detail="success")
 
     def apply_qdef_rule(
         self,
@@ -808,7 +818,9 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
             regras_agrupadas, volumes_relato_hm3
         )
         for e in regras_ativas.keys():
-            Log.log().info(f"Regras ativas estagio {e}: {[str(r) for r in regras_ativas[e]]}")
+            Log.log().info(
+                f"Regras ativas estagio {e}: {[str(r) for r in regras_ativas[e]]}"
+            )
 
         # Para o NEWAVE, são sempre tomadas as regras vigentes para os
         # volumes do últimos estágio semanal do último DECOMP do mês anterior
@@ -904,7 +916,9 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         # Obtém as regras ativas para cada usina
         for stage, rulesInStage in rules.items():
             uhesWithRules = list(set([r.uheCode for r in rulesInStage]))
-            constraintTypes = list(set([r.constraintType for r in rulesInStage]))
+            constraintTypes = list(
+                set([r.constraintType for r in rulesInStage])
+            )
             activeRules: List[ReservoirGroupRule] = []
             for t in constraintTypes:
                 for u in uhesWithRules:
