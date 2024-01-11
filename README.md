@@ -127,7 +127,7 @@ Estas regras definidas acima modelam o comportamento desejado para a UHE Três M
 
 ## Regras de Reservatórios Equivalentes
 
-Uma determinada variável de operação de uma usina pode ser determinada não apenas a partir de um reservatório, mas a partir do armazenamento total de um conjunto de reservatórios, o que é chamado de reservatório equivalente. Desta forma, é suportada a definição de mais de uma regra que atuam em uma determinada usina no mesmo mês, na mesma variável e com a mesma periodicidade, tomando como base diferentes reservatórios.
+Uma determinada variável de operação de uma usina pode ser determinada não apenas a partir de um reservatório, mas a partir do armazenamento total de um conjunto de reservatórios, o que é chamado de reservatório equivalente. Desta forma, é suportada a definição de mais de uma regra que atua em uma determinada usina no mesmo mês, na mesma variável e com a mesma periodicidade, tomando como base diferentes reservatórios.
 
 O serviço irá construir uma regra de reservatório equivalente a partir das regras informadas, agrupando todas as regras com os mesmos `uheCode`, `constaintType`, `month`, `frequency` e `label`. Repare que, para este caso, é importante que cada faixa de operação da usina tenha um label diferente, e que regras de reservatórios que compõe um reservatório equivalente tenham `labels` compatíveis.
 
@@ -203,7 +203,7 @@ Para casos com modelagem agregada, qualquer restrição além de `QDEF` mínimo 
 De modo mais direto, são alterados os arquivos para cada limite e variável:
 
 - `QDEF` mínimo: `modif.dat`
-- `QDEF` máximo: `modif.dat`
+- `QDEF` máximo: (no momento não incluído no NEWAVE)
 - `QTUR` mínimo: `modif.dat`
 - `QTUR` máximo: `modif.dat` e `re.dat`
 
