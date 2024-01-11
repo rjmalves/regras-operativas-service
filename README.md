@@ -187,8 +187,22 @@ Um exemplo de regras equivalentes é para a defluência da usina de Jupiá (45),
 ]
 ```
 
-Este conjunto de regras informa para o serviço que deve ser construído um reservatório equivalente com o armazenamento das usinas de Furnas (6), Emborcação (24), Nova Ponte (25) e Itumbiara (31). Quando este reservatório se encontrar entre 0% e 30%, a defluência de Jupiá será limitada superiormente a 2700 m3/s.
+Este conjunto de regras informa para o serviço que deve ser construído um reservatório equivalente com o armazenamento das usinas de Furnas (6), Emborcação (24), Nova Ponte (25) e Itumbiara (31). Quando este reservatório se encontrar entre 0% e 30%, a defluência de Jupiá será limitada superiormente a 2700 m3/s. Internamente o serviço cria a representação de um `ReservoirGroupRule` para modelar esta regra:
 
+```json
+    {
+        "reservoirCodes": [6, 24, 25, 31],
+        "uheCode": 45,
+        "constraintType": "QDEF",
+        "month": 1,
+        "minVolume": 0.0,
+        "maxVolume": 30.0,
+        "minLimit": 0.0,
+        "maxLimit": 2700.0,
+        "frequency": "S",
+        "label": "Restricao"
+    },
+```
 
 ## Arquivos Alterados com as Regras
 
@@ -251,3 +265,5 @@ Os campos informados são:
 - `sources`: Uma lista de casos excutados anteriormente, em ordem cronológica, que podem ser utilizados para extrair uma prospecção de armazenamentos para aplicação das regras. Um caso é resumido a um atributo `id`, que é o caminho para o diretório do caso codificado em `base62`, e um atributo `program` para o nome do programa. Atualmente somente casos de `DECOMP` são suportados para prospecção.  
 - `destination`: Um caso, representado da mesma maneira do campo anterior, para ser alvo da aplicação de regras.  
 - `rules`: Uma lista de objetos `ReservoirRule`, descritos em uma seção anterior.
+
+A resposta, se flexibilização for realizada com sucesso, contém um objeto com uma lista de `ReservoirGroupRule`, que foram aplicadas ao caso.
