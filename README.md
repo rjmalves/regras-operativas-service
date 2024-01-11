@@ -230,25 +230,24 @@ A única rota fornecida pelo serviço é `POST /reservoir`, onde o corpo do obje
         "program": "NEWAVE"
     },
     "rules": [
-    {
-        "reservoirCode": "156",
-        "uheCode": 156,
-        "constraintType": "QDEF",
-        "month": 1.0,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 100.0,
-        "maxLimit": 150.0,
-        "frequency": "M",
-        "label": "Restricao"
-    },
-    ...
+        {
+            "reservoirCode": "156",
+            "uheCode": 156,
+            "constraintType": "QDEF",
+            "month": 1.0,
+            "minVolume": 0.0,
+            "maxVolume": 30.0,
+            "minLimit": 100.0,
+            "maxLimit": 150.0,
+            "frequency": "M",
+            "label": "Restricao"
+        }
     ]
 }
 ```
 
 Os campos informados são:
 
-- `sources`: Uma lista de casos excutados anteriormente, em ordem cronológica, que podem ser utilizados para extrair uma prospecção de armazenamentos para aplicação das regras. Um caso é resumido a um atributo `id`, que é o caminho para o diretório do caso codificado em BASE62, e um atributo `program` para o nome do programa. Atualmente somente casos de `DECOMP` são suportados para prospecção.  
+- `sources`: Uma lista de casos excutados anteriormente, em ordem cronológica, que podem ser utilizados para extrair uma prospecção de armazenamentos para aplicação das regras. Um caso é resumido a um atributo `id`, que é o caminho para o diretório do caso codificado em `base62`, e um atributo `program` para o nome do programa. Atualmente somente casos de `DECOMP` são suportados para prospecção.  
 - `destination`: Um caso, representado da mesma maneira do campo anterior, para ser alvo da aplicação de regras.  
 - `rules`: Uma lista de objetos `ReservoirRule`, descritos em uma seção anterior.
