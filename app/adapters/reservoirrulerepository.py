@@ -786,6 +786,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                 decompActualMonth = (decompDate + timedelta(days=6)).month
                 if decompActualMonth == previousMonth:
                     right_source_uow = s
+                    break
 
         if right_source_uow is None:
             msg = (
