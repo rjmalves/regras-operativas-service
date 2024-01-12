@@ -60,7 +60,7 @@ INFO:     127.0.0.1:36872 - "GET /openapi.json HTTP/1.1" 200 OK
 ```
 
 
-Maiores detalhes sobre a rota disponível pode ser visto ao lançar a aplicação localmente e acessar a rota `/docs`, que possui uma página no formato [OpenAPI](https://swagger.io/specification/). Em geral, casos são referenciados por meio do seus caminhos no sistema de arquivos codificados em `base62` e as regras operativas são modeladas pelo objeto `ReservoirRule`, que possui as especificações:
+Maiores detalhes sobre a rota disponível pode ser visto ao lançar a aplicação localmente e acessar a rota `/docs`, que possui uma página no formato [OpenAPI](https://swagger.io/specification/). Em geral, casos são referenciados por meio de seus caminhos no sistema de arquivos codificados em `base62` e as regras operativas são modeladas pelo objeto `ReservoirRule`, que possui as especificações:
 
 ```json
     {
@@ -79,18 +79,18 @@ Maiores detalhes sobre a rota disponível pode ser visto ao lançar a aplicaçã
 
 ## Definição de Regra Operativa
 
-As regras operativas suportadas por este serviço são do tipo armazenamento-vazão. Isto é, cada regra se define com as propriedade:
+As regras operativas suportadas por este serviço são do tipo armazenamento-vazão. Isto é, cada regra se define com as propriedades:
 
  - `reservoirCode`: código do reservatório cujo volume armazenado define a faixa de operação da usina
  - `uheCode`: código da usina hidrelétrica cuja operação é influenciada pelo reservatório
- - `constraintType`: variável que é influenciada (atualmente QDEF ou QTUR)
+ - `constraintType`: variável que é influenciada (atualmente suporta QDEF ou QTUR)
  - `month`: mês de vigência da regra, visto que na prática muitas regras são sazonalizadas no ano (1 - 12)
  - `minVolume`: limite inferior da faixa de volume para ativação da regra (%)
  - `maxVolume`: limite superior da faixa de volume para ativação da regra (%)
  - `minLimit`: limite inferior da variável influenciada (m3/s)
  - `maxLimit`: limite superior da variável influenciada (m3/s)
- - `frequency`: frequência de atualização da regra (atualmente S - semanal e M - mensal)
- - `label`: rótulo da faixa de operação definida pela regra (normal, atenção, restrição, etc.)
+ - `frequency`: frequência de atualização da regra (atualmente suporta S - semanal e M - mensal)
+ - `label`: rótulo da faixa de operação definida pela regra (normal, atenção, restrição, etc., apenas informativo)
 
 Um exemplo de regras válidas, para a UHE Três Marias (156) no mês de Janeiro, já utilizadas:
 
@@ -131,7 +131,7 @@ Uma determinada variável de operação de uma usina pode ser determinada não a
 
 O serviço irá construir uma regra de reservatório equivalente a partir das regras informadas, agrupando todas as regras com os mesmos `uheCode`, `constaintType`, `month`, `frequency` e `label`. Repare que, para este caso, é importante que cada faixa de operação da usina tenha um label diferente, e que regras de reservatórios que compõe um reservatório equivalente tenham `labels` compatíveis.
 
-Um exemplo de regras equivalentes é para a defluência da usina de Jupiá (45), que é determinada com base em um reservatório equivalente construído com usinas da bacia do Grande. Para o mês de janeiro, por exemplo, na faixa de restrição:
+Um exemplo de regras equivalentes é para a defluência da usina de Jupiá (45), que pode ser determinada com base em um reservatório equivalente construído com usinas da bacia do Grande. Para o mês de janeiro, por exemplo, na faixa de restrição:
 
 
 ```json
@@ -212,7 +212,7 @@ Em cada um dos modelos energéticos as regras são aplicadas alterando arquivos 
 
 No modelo NEWAVE são alterados principalmente os arquivos `re.dat` e `modif.dat`. Em particular, para casos totalmente individualizados, apenas o arquivo `modif.dat` é necessário, visto que neste é possível informar restrições de mínimo e máximo para ambas as variáveis `QDEF` e `QTUR`. 
 
-Para casos com modelagem agregada, qualquer restrição além de `QDEF` mínimo não é representável, sendo necessário fazer uma aproximação no arquivo `re.dat`. Neste, é utilizada uma aproximação para representar valores máximos de turbinamento e/ou defluência a partir de valores de geração. Valores que superem o engolimento máximo da usina não são representadas, por simplificação, visto que não teriam efeito prático.
+Para casos com modelagem agregada, qualquer restrição além de `QDEF` mínimo não é representável, sendo necessário fazer uma aproximação no arquivo `re.dat`. Neste, é utilizada uma aproximação para representar valores máximos de turbinamento e/ou defluência a partir de valores de geração máxima. Valores que superem o engolimento máximo da usina não são representadas, por simplificação, visto que não teriam efeito prático.
 
 De modo mais direto, são alterados os arquivos para cada limite e variável:
 
