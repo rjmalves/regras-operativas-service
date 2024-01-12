@@ -1012,10 +1012,13 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             f"Aplicando regra: {str(rule)} no estágio {applicationStage}"
         )
         # Se ocorrer algum erro, retorna False
-        if rule.constraintType in ["QDEF", "QTUR"] and any(
-            [rule.minLimit, rule.maxLimit]
-        ):
-            self.aplica_regra_qdef_qtur(rule, dadger, applicationStage)
+        if rule.constraintType in ["QDEF", "QTUR"]:
+            if any([rule.minLimit, rule.maxLimit]):
+                self.aplica_regra_qdef_qtur(rule, dadger, applicationStage)
+            else:
+                Log.log().info(
+                    f"Regra sem limites. Será mantido o existente no deck."
+                )
         else:
             return HTTPResponse(
                 code=500, detail=f"error applying rule {str(rule)}"
