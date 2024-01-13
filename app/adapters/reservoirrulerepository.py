@@ -770,7 +770,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
 
         right_source_uow = None
         newaveMonth = dger.mes_inicio_estudo
-        previousMonth = 12 if newaveMonth == 11 else newaveMonth - 1
+        previousMonth = 12 if newaveMonth == 1 else newaveMonth - 1
         for s in reversed(sources_uow):
             with s:
                 dadger = await s.files.get_dadger()
@@ -1186,7 +1186,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         ).month
         previousMonth = (
             12
-            if currentDecompActualMonth == 11
+            if currentDecompActualMonth == 1
             else currentDecompActualMonth - 1
         )
         right_source_uow = None
