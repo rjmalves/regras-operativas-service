@@ -784,6 +784,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                     day=dadger.dt.dia,
                 )
                 decompActualMonth = (decompDate + timedelta(days=6)).month
+                Log.log().info(f"Mês do DECOMP: {decompActualMonth}")
                 if decompActualMonth == previousMonth:
                     right_source_uow = s
                     break
