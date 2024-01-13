@@ -783,7 +783,7 @@ class NEWAVEReservoirRuleRepository(AbstractReservoirRuleRepository):
                     month=dadger.dt.mes,
                     day=dadger.dt.dia,
                 )
-                decompActualMonth = (decompDate + timedelta(days=8)).month
+                decompActualMonth = (decompDate + timedelta(days=6)).month
                 Log.log().info(f"Mês do DECOMP: {decompActualMonth}")
                 if decompActualMonth == previousMonth:
                     right_source_uow = s
@@ -1072,7 +1072,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 month=dadger.dt.mes,
                 day=dadger.dt.dia,
             )
-            decompActualDate = decompDate + timedelta(days=8)
+            decompActualDate = decompDate + timedelta(days=6)
             endDayMaps = {
                 1: datetime(
                     year=decompActualDate.year,
@@ -1182,7 +1182,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             day=currentDadger.dt.dia,
         )
         currentDecompActualMonth = (
-            currentDecompDate + timedelta(days=8)
+            currentDecompDate + timedelta(days=6)
         ).month
         previousMonth = (
             12
@@ -1202,7 +1202,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                     month=dadger.dt.mes,
                     day=dadger.dt.dia,
                 )
-                decompActualMonth = (decompDate + timedelta(days=8)).month
+                decompActualMonth = (decompDate + timedelta(days=6)).month
                 if decompActualMonth == previousMonth:
                     right_source_uow = s
 
