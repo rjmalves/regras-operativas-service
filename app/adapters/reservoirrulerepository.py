@@ -993,6 +993,8 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
         for codigo, ef in zip(codigos_restricoes, efs):
             for e in range(estagio, ef + 1):
                 dadger.lq(codigo, e)
+                dadger.lq(codigo, e).limite_inferior = [0.0] * 3
+                dadger.lq(codigo, e).limite_superior = [99999.0] * 3
             # Aplica a regra no estágio devido, se tiver limites inf/sup
             if rule.minLimit is not None:
                 dadger.lq(codigo, estagio).limite_inferior = [
