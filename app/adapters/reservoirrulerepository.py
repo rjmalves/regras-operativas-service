@@ -985,10 +985,12 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 cq_novo.coeficiente = 1
                 cq_novo.tipo = rule.constraintType
                 dadger.data.add_after(lq_novo, cq_novo)
-            efs = [
-                dadger.hq(codigo_restricao=codigo).estagio_final
-                for codigo in codigos_restricoes
-            ]
+            efs = []
+            n_estagios = len(dadger.dp(codigo_submercado=1))
+            for codigo in codigos_restricoes:
+                dadger.hq(codigo_restricao=codigo).estagio_final = n_estagios
+                efs.append(dadger.hq(codigo_restricao=codigo).estagio_final)
+
 
         for codigo, ef in zip(codigos_restricoes, efs):
             for e in range(estagio, ef + 1):
