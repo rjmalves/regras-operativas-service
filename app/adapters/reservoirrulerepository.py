@@ -976,6 +976,9 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
                 lq_novo = LQ()
                 lq_novo.codigo_restricao = codigo_nova_restricao
                 lq_novo.estagio = 1
+                # Cria já setando limites soltos
+                lq_novo.limite_inferior = [0.0] * 3
+                lq_novo.limite_superior = [99999.0] * 3
                 dadger.data.add_after(hq_novo, lq_novo)
 
                 cq_novo = CQ()
@@ -990,7 +993,6 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             for codigo in codigos_restricoes:
                 dadger.hq(codigo_restricao=codigo).estagio_final = n_estagios
                 efs.append(dadger.hq(codigo_restricao=codigo).estagio_final)
-
 
         for codigo, ef in zip(codigos_restricoes, efs):
             for e in range(estagio, ef + 1):
