@@ -963,7 +963,7 @@ class DECOMPReservoirRuleRepository(AbstractReservoirRuleRepository):
             if len(cqs_usina) > 0:
                 codigos_restricoes = [cq.codigo_restricao for cq in cqs_usina]
             else:
-                codigo_nova_restricao = cqs[-1].codigo_restricao + 1
+                codigo_nova_restricao = max([c.codigo_restricao for c in cqs]) + 1
                 codigos_restricoes = [codigo_nova_restricao]
                 estagio_final = len(dadger.dp(codigo_submercado=1))
 
