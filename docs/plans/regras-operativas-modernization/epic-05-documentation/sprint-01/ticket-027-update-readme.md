@@ -1,3 +1,29 @@
+# [TICKET-027] Update README.md
+
+> **Epic**: [Epic 05: Documentation & Release](../00-epic-overview.md)  
+> **Sprint**: [Sprint 1](./00-sprint-overview.md)  
+> **Dependencies**: All implementation tickets complete  
+> **Blocks**: TICKET-030 (release)
+
+## Context
+
+### Background
+
+The README.md needs a complete rewrite for v2.0.0, reflecting the new S3-based architecture, Docker deployment, and modernized API. The documentation should enable new developers to understand, deploy, and use the service quickly.
+
+### Current State
+
+Basic README exists but documents the legacy PM2/filesystem approach.
+
+## Specification
+
+### File to Update
+
+`README.md`
+
+### Target Structure
+
+```markdown
 # regras-operativas-service
 
 Service for applying reservoir operation rules to NEWAVE and DECOMP energy planning models. Part of the HPC processing pipeline.
@@ -188,74 +214,6 @@ The service requires the following S3 permissions:
 }
 ```
 
-## Reservoir Rule Definition
-
-Reservoir operation rules control flow constraints based on storage levels. Each rule defines:
-
-| Field | Description |
-|-------|-------------|
-| `reservoirCode` | Reservoir code whose storage determines the operating range |
-| `uheCode` | Hydroelectric plant code affected by the rule |
-| `constraintType` | Variable constrained (`QDEF` for outflow, `QTUR` for turbine flow) |
-| `month` | Month of rule validity (1-12) |
-| `minVolume` | Lower storage threshold for rule activation (%) |
-| `maxVolume` | Upper storage threshold for rule activation (%) |
-| `minLimit` | Lower limit of constrained variable (m³/s) |
-| `maxLimit` | Upper limit of constrained variable (m³/s) |
-| `frequency` | Update frequency (`S` = weekly, `M` = monthly) |
-| `label` | Operating range label (informational) |
-
-### Example: Três Marias (UHE 156)
-
-```json
-[
-  {
-    "reservoirCode": 156,
-    "uheCode": 156,
-    "constraintType": "QDEF",
-    "month": 1,
-    "minVolume": 0.0,
-    "maxVolume": 30.0,
-    "minLimit": 100.0,
-    "maxLimit": 99999.0,
-    "frequency": "M",
-    "label": "Restricao"
-  }
-]
-```
-
-This rule limits the minimum outflow to 100 m³/s when storage is between 0% and 30%.
-
-### Equivalent Reservoir Rules
-
-Rules can aggregate storage from multiple reservoirs. Rules with the same `uheCode`, `constraintType`, `month`, `frequency`, and `label` are grouped into an equivalent reservoir:
-
-```json
-[
-  {"reservoirCode": 6, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...},
-  {"reservoirCode": 24, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...},
-  {"reservoirCode": 25, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...}
-]
-```
-
-This creates an equivalent reservoir from Furnas (6), Emborcação (24), and Nova Ponte (25).
-
-## Files Modified
-
-### NEWAVE
-
-| Constraint | Files Modified |
-|------------|----------------|
-| `QDEF` min | `modif.dat` |
-| `QTUR` min | `modif.dat` |
-| `QTUR` max | `modif.dat`, `re.dat` |
-
-### DECOMP
-
-| File | Registers Modified |
-|------|-------------------|
-| `dadger.rvX` | `HQ`, `LQ`, `CQ` |
-
 ## Development
 
 ### Project Structure
@@ -335,6 +293,9 @@ sudo systemctl status regras-operativas
 # Logs
 journalctl -u regras-operativas -f
 
+# Upgrade
+sudo ./deploy/upgrade.sh
+
 # Uninstall
 sudo ./deploy/uninstall.sh
 ```
@@ -352,3 +313,51 @@ See [MIGRATION.md](docs/MIGRATION.md) for migration guide from PM2/filesystem to
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
+```
+
+## Acceptance Criteria
+
+- [ ] README.md rewritten with v2.0 content
+- [ ] Quick start instructions work
+- [ ] API reference is accurate
+- [ ] Configuration documented
+- [ ] Development instructions work
+- [ ] All links valid
+- [ ] No references to PM2 or filesystem paths
+
+## Implementation Guide
+
+### Step 1: Review Current README
+
+Note any content worth preserving.
+
+### Step 2: Write New README
+
+Follow the structure above, adapting to actual implementation.
+
+### Step 3: Verify Instructions
+
+```bash
+# Test quick start commands
+docker compose up -d
+curl http://localhost:8000/health/live
+docker compose down
+```
+
+### Step 4: Check Links
+
+Ensure all internal links work.
+
+## Definition of Done
+
+- [ ] README.md updated
+- [ ] Instructions verified
+- [ ] API examples accurate
+- [ ] No legacy references
+- [ ] Links working
+
+## Effort Estimate
+
+**Points**: 2  
+**Confidence**: High  
+**Rationale**: Documentation writing, clear structure provided

@@ -1,0 +1,73 @@
+# =============================================================================
+# Docker Ignore - Exclude from build context
+# =============================================================================
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+.eggs
+dist
+build
+*.whl
+
+# Virtual environments
+.venv
+venv
+ENV
+env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# Documentation
+docs/plans
+*.md
+!README.md
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Cache
+.cache
+.mypy_cache
+.ruff_cache
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Test fixtures (large files)
+tests/fixtures/
