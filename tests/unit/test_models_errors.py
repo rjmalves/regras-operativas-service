@@ -1,7 +1,10 @@
 """Unit tests for error models."""
 
-import pytest
-from app.models.errors import ErrorDetail, ErrorResponse, ValidationErrorResponse
+from app.models.errors import (
+    ErrorDetail,
+    ErrorResponse,
+    ValidationErrorResponse,
+)
 
 
 class TestErrorDetail:

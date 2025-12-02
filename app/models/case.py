@@ -6,15 +6,17 @@ replacing the legacy base62-encoded filesystem paths.
 """
 
 from pydantic import BaseModel, Field
+
 from app.models.program import Program
 
 
 class Case(BaseModel):
     """
     Legacy class for defining a case reference (backward compatibility).
-    
+
     Deprecated: Use CaseReference for new code.
     """
+
     id: str
     program: Program
 
@@ -22,16 +24,16 @@ class Case(BaseModel):
 class CaseReference(BaseModel):
     """
     Reference to a case stored in S3.
-    
+
     Replaces the base62-encoded filesystem path with explicit
     S3 bucket and execution hash.
-    
+
     Attributes:
         bucket: S3 bucket name containing the case artifacts
         execution_hash: Unique identifier for the execution
         program: Program type (NEWAVE or DECOMP)
         output_prefix: S3 prefix for output files (default: "ingest")
-    
+
     Example:
         >>> ref = CaseReference(
         ...     bucket="decomp-bucket",
@@ -41,6 +43,7 @@ class CaseReference(BaseModel):
         >>> ref.input_deck_key
         'artifacts/abc123def456/entradas/deck_processado.zip'
     """
+
     bucket: str = Field(
         ...,
         description="S3 bucket name",
@@ -60,31 +63,31 @@ class CaseReference(BaseModel):
         default="ingest",
         description="S3 prefix for output files",
     )
-    
+
     @property
     def input_deck_key(self) -> str:
         """S3 key for input deck zip."""
         return f"artifacts/{self.execution_hash}/entradas/deck_processado.zip"
-    
+
     def get_output_key(self, suffix: str = "_regras.zip") -> str:
         """
         Get S3 key for output zip.
-        
+
         Args:
             suffix: File suffix (default: "_regras.zip")
-            
+
         Returns:
             Full S3 key for output file
         """
         return f"{self.output_prefix}/{self.execution_hash}{suffix}"
-    
+
     def get_relato_key(self, extension: str) -> str:
         """
         Get S3 key for relato file (DECOMP only).
-        
+
         Args:
             extension: File extension (e.g., "rv0")
-            
+
         Returns:
             Full S3 key for relato file
         """

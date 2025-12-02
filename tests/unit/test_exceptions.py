@@ -1,12 +1,13 @@
 """Unit tests for the exception hierarchy."""
 
 import pytest
+
 from app.internal.exceptions import (
-    RegrasOperativasException,
-    S3OperationError,
     ArtifactNotFoundError,
     ParseError,
+    RegrasOperativasException,
     RuleApplicationError,
+    S3OperationError,
     ValidationError,
     ZipExtractionError,
 )

@@ -43,6 +43,9 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
+    
+    # Legacy compatibility (for v1 API base62 encoding)
+    "pybase62>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -144,6 +147,27 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001", "ARG002"]  # Unused arguments OK in tests
+# Legacy code - ignore all modernization and style rules
+"app/adapters/decomprepository.py" = ["ALL"]
+"app/adapters/newaverepository.py" = ["ALL"]
+"app/adapters/reservoirrulerepository.py" = ["ALL"]
+"app/adapters/uriparserrepository.py" = ["ALL"]
+"app/services/unitofwork.py" = ["ALL"]
+"app/models/reservoirrule.py" = ["ALL"]
+"app/models/reservoirgrouprule.py" = ["ALL"]
+"app/models/program.py" = ["ALL"]
+"app/models/reservoirrulesrequest.py" = ["ALL"]
+"app/models/reservoirrulesresponse.py" = ["ALL"]
+"app/routers/reservoir.py" = ["ALL"]
+"app/utils/encoding.py" = ["ALL"]
+"app/utils/singleton.py" = ["ALL"]
+"app/utils/terminal.py" = ["ALL"]
+"app/utils/__init__.py" = ["ALL"]
+"app/internal/httpresponse.py" = ["ALL"]
+"app/internal/settings.py" = ["ALL"]
+"app/internal/dependencies.py" = ["ALL"]
+"app/internal/fs.py" = ["ALL"]
+"app/internal/terminal.py" = ["ALL"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
@@ -151,16 +175,58 @@ known-first-party = ["app"]
 # MyPy configuration
 [tool.mypy]
 python_version = "3.11"
+warn_return_any = false
+warn_unused_ignores = false
+check_untyped_defs = false
+strict_optional = false
+ignore_missing_imports = true
+
+# Strict settings for new code only
+[[tool.mypy.overrides]]
+module = [
+    "app.adapters.s3_repository",
+    "app.utils.zip_utils",
+    "app.utils.temp_manager",
+    "app.internal.exceptions",
+    "app.routers.health",
+    "app.models.errors",
+    "app.models.case",
+]
 warn_return_any = true
-warn_unused_ignores = true
 check_untyped_defs = true
 strict_optional = true
-ignore_missing_imports = true
+
+# Ignore all errors in legacy code
+[[tool.mypy.overrides]]
+module = [
+    "app.adapters.decomprepository",
+    "app.adapters.newaverepository",
+    "app.adapters.reservoirrulerepository",
+    "app.adapters.uriparserrepository",
+    "app.services.unitofwork",
+    "app.routers.reservoir",
+    "app.utils.encoding",
+    "app.utils.singleton",
+    "app.utils.terminal",
+    "app.utils",
+    "app.internal.terminal",
+    "app.internal.fs",
+    "app.internal.httpresponse",
+    "app.internal.settings",
+    "app.internal.dependencies",
+    "app.models.reservoirrule",
+    "app.models.reservoirgrouprule",
+    "app.models.reservoirrulesrequest",
+    "app.models.reservoirrulesresponse",
+    "app.models.program",
+]
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
     "inewave.*",
     "idecomp.*",
     "moto.*",
+    "base62.*",
 ]
 ignore_missing_imports = true

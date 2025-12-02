@@ -4,19 +4,18 @@ Regras Operativas Service - Main Application Entry Point.
 This service applies reservoir operational rules to NEWAVE/DECOMP cases.
 """
 
-from dotenv import load_dotenv
-import uvicorn
 import os
 import pathlib
 from contextlib import asynccontextmanager
 
+import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import reservoir, health
 from app.internal.settings import Settings
+from app.routers import health, reservoir
 from app.utils.log import Log
-
 
 # Set install directory for legacy compatibility
 BASEDIR = pathlib.Path().resolve()
@@ -47,11 +46,11 @@ def create_app(
 ) -> FastAPI:
     """
     Application factory for creating FastAPI instances.
-    
+
     Args:
         root_path: FastAPI root path (for reverse proxies)
         debug: Enable debug mode with docs
-        
+
     Returns:
         Configured FastAPI application
     """
@@ -65,7 +64,7 @@ def create_app(
         docs_url="/docs" if debug else "/docs",
         redoc_url="/redoc" if debug else None,
     )
-    
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -74,11 +73,11 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Include routers
     app.include_router(health.router, tags=["Health"])
     app.include_router(reservoir.router)
-    
+
     return app
 
 

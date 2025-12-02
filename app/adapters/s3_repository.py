@@ -21,9 +21,7 @@ class AbstractS3Repository(ABC):
     """Abstract interface for S3 operations."""
 
     @abstractmethod
-    async def download_file(
-        self, bucket: str, key: str, local_path: str
-    ) -> None:
+    async def download_file(self, bucket: str, key: str, local_path: str) -> None:
         """
         Download a file from S3 to local filesystem.
 
@@ -148,9 +146,7 @@ class S3Repository(AbstractS3Repository):
             config=config,
         )
 
-    async def download_file(
-        self, bucket: str, key: str, local_path: str
-    ) -> None:
+    async def download_file(self, bucket: str, key: str, local_path: str) -> None:
         """Download a file from S3 to local filesystem."""
         loop = asyncio.get_event_loop()
         try:

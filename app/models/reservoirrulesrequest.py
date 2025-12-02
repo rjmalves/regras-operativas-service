@@ -15,9 +15,10 @@ from app.models.reservoirrule import ReservoirRule
 class ReservoirRulesRequest(BaseModel):
     """
     Legacy request format using base62-encoded paths.
-    
+
     Deprecated: Use ReservoirRulesRequestV2 for new integrations.
     """
+
     sources: List[Case]
     destination: Case
     rules: List[ReservoirRule]
@@ -26,14 +27,14 @@ class ReservoirRulesRequest(BaseModel):
 class ReservoirRulesRequestV2(BaseModel):
     """
     Modern request format using S3 references.
-    
+
     Request body for applying reservoir rules to a case stored in S3.
-    
+
     Attributes:
         sources: List of source cases for reservoir storage prospection
         destination: Destination case to apply rules to
         rules: List of reservoir rules to apply
-    
+
     Example:
         {
             "sources": [
@@ -65,6 +66,7 @@ class ReservoirRulesRequestV2(BaseModel):
             ]
         }
     """
+
     sources: List[CaseReference] = Field(
         ...,
         description="Source cases for reservoir storage prospection",

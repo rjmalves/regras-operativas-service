@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import logging
+
 import pytest
 
 from app.utils.log import Log

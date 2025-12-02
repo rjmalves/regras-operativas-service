@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from app.models.case import CaseReference
 from app.models.program import Program
-from app.models.reservoirrule import ReservoirRule
 from app.models.reservoirgrouprule import ReservoirGroupRule
+from app.models.reservoirrule import ReservoirRule
 from app.models.reservoirrulesrequest import (
     ReservoirRulesRequest,
     ReservoirRulesRequestV2,
@@ -69,7 +69,11 @@ class TestReservoirRulesRequestV2:
     def test_request_v2_multiple_sources(self, sample_destination, sample_rule):
         """Test V2 request with multiple sources."""
         sources = [
-            CaseReference(bucket="decomp-bucket", execution_hash=f"src{i}", program=Program.DECOMP)
+            CaseReference(
+                bucket="decomp-bucket",
+                execution_hash=f"src{i}",
+                program=Program.DECOMP,
+            )
             for i in range(3)
         ]
         request = ReservoirRulesRequestV2(
@@ -89,7 +93,9 @@ class TestReservoirRulesRequestV2:
             )
         assert "sources" in str(exc_info.value)
 
-    def test_request_v2_serialization(self, sample_source, sample_destination, sample_rule):
+    def test_request_v2_serialization(
+        self, sample_source, sample_destination, sample_rule
+    ):
         """Test V2 request serialization."""
         request = ReservoirRulesRequestV2(
             sources=[sample_source],
@@ -97,7 +103,7 @@ class TestReservoirRulesRequestV2:
             rules=[sample_rule],
         )
         data = request.model_dump()
-        
+
         assert data["sources"][0]["bucket"] == "decomp-bucket"
         assert data["destination"]["execution_hash"] == "dest456"
         assert data["rules"][0]["constraintType"] == "QDEF"
@@ -134,7 +140,7 @@ class TestReservoirRulesRequestV2:
             ],
         }
         request = ReservoirRulesRequestV2.model_validate(json_data)
-        
+
         assert request.sources[0].program == Program.DECOMP
         assert request.destination.output_prefix == "custom"
         assert request.rules[0].constraintType == "QTUR"
@@ -195,7 +201,7 @@ class TestReservoirRulesResponseV2:
             message="Success",
         )
         data = response.model_dump()
-        
+
         assert data["success"] is True
         assert data["output_key"] == "ingest/abc123_regras.zip"
         assert len(data["rules_applied"]) == 1
@@ -211,7 +217,7 @@ class TestReservoirRulesResponseV2:
             message="Done",
         )
         json_str = response.model_dump_json()
-        
+
         assert '"success":true' in json_str
         assert '"output_key":"ingest/test_regras.zip"' in json_str
 
@@ -222,7 +228,7 @@ class TestLegacyModels:
     def test_legacy_request_still_works(self):
         """Test that legacy ReservoirRulesRequest still works."""
         from app.models.case import Case
-        
+
         request = ReservoirRulesRequest(
             sources=[Case(id="base62encoded", program=Program.DECOMP)],
             destination=Case(id="anotherbase62", program=Program.NEWAVE),

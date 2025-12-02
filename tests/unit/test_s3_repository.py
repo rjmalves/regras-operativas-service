@@ -4,16 +4,16 @@ import pytest
 
 from app.adapters.s3_repository import (
     S3Repository,
-    get_s3_repository,
     reset_s3_repository,
     set_s3_repository,
 )
-from app.internal.exceptions import ArtifactNotFoundError, S3OperationError
+from app.internal.exceptions import ArtifactNotFoundError
 
 # Check if moto is available
 try:
     import boto3
     from moto import mock_aws
+
     MOTO_AVAILABLE = True
 except ImportError:
     MOTO_AVAILABLE = False
@@ -78,7 +78,9 @@ class TestS3Repository:
         local_path = tmp_path / "downloaded.txt"
 
         with pytest.raises(ArtifactNotFoundError) as exc_info:
-            await s3_repo.download_file("test-bucket", "nonexistent.txt", str(local_path))
+            await s3_repo.download_file(
+                "test-bucket", "nonexistent.txt", str(local_path)
+            )
 
         assert "test-bucket" in exc_info.value.details.get("bucket", "")
 
@@ -164,6 +166,7 @@ class TestS3RepositorySingleton:
 
     def test_set_s3_repository(self):
         """Test set_s3_repository sets custom instance."""
+
         # Create a mock repo (not a real one to avoid AWS calls)
         class MockRepo:
             def close(self):

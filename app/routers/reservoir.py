@@ -10,8 +10,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Annotated
 
 from app.internal.httpresponse import HTTPResponse
-from app.models.reservoirrulesrequest import ReservoirRulesRequest, ReservoirRulesRequestV2
-from app.models.reservoirrulesresponse import ReservoirRulesResponse, ReservoirRulesResponseV2
+from app.models.reservoirrulesrequest import (
+    ReservoirRulesRequest,
+    ReservoirRulesRequestV2,
+)
+from app.models.reservoirrulesresponse import (
+    ReservoirRulesResponse,
+    ReservoirRulesResponseV2,
+)
 from app.models.errors import ErrorResponse
 from app.models.program import Program
 
@@ -70,7 +76,7 @@ async def reservoir(
 ):
     """
     Apply reservoir rules to a case (legacy endpoint).
-    
+
     This endpoint uses base62-encoded filesystem paths and is deprecated.
     Use POST /reservoir/v2/ with S3 bucket and execution_hash instead.
     """
@@ -88,9 +94,7 @@ async def reservoir(
     ]
     destination_uow = uow_factory(req.destination.program, destination_path)
     reservoir_repo = reservoir_factory(req.destination.program)
-    result = await reservoir_repo.apply(
-        req.rules, sources_uow, destination_uow
-    )
+    result = await reservoir_repo.apply(req.rules, sources_uow, destination_uow)
     if isinstance(result, HTTPResponse):
         raise HTTPException(status_code=result.code, detail=result.detail)
     return ReservoirRulesResponse(result=result)
@@ -121,27 +125,27 @@ async def apply_reservoir_rules_v2(
 ):
     """
     Apply reservoir rules to a case stored in S3.
-    
+
     This endpoint:
     1. Downloads source case(s) from S3 for reservoir storage prospection
     2. Downloads destination case from S3
     3. Applies reservoir rules based on storage levels
     4. Uploads modified deck back to S3
-    
+
     The rules are applied based on the reservoir storage levels from the
     source DECOMP case(s), modifying the destination NEWAVE or DECOMP files.
     """
     dest = req.destination
-    
+
     try:
         # Prepare source references for prospection
         source_refs = [(s.bucket, s.execution_hash) for s in req.sources]
         Log.log().info(f"Processing {len(source_refs)} source(s) for prospection")
-        
+
         # Download and process sources for prospection data
         async with S3DecompProspectionUnitOfWork(s3_repo, source_refs) as sources_uow:
             Log.log().info(f"Downloaded {len(sources_uow.repositories)} source case(s)")
-            
+
             # Create sync wrappers for source repositories
             sources_sync = [
                 S3DecompProspectionSync(repo, temp_dir)
@@ -150,13 +154,13 @@ async def apply_reservoir_rules_v2(
                     sources_uow._temp_dirs,
                 )
             ]
-            
+
             # Select appropriate UoW class for destination
             if dest.program == Program.DECOMP:
                 DestUowClass = S3DecompUnitOfWork
             else:
                 DestUowClass = S3NewaveUnitOfWork
-            
+
             # Download and process destination
             async with DestUowClass(
                 s3_repo,
@@ -165,23 +169,23 @@ async def apply_reservoir_rules_v2(
                 dest.output_prefix,
             ) as dest_uow:
                 Log.log().info(f"Downloaded destination case: {dest.execution_hash}")
-                
+
                 # Create sync wrapper for destination
                 if dest.program == Program.DECOMP:
                     dest_sync = S3DecompUnitOfWorkSync(dest_uow)
                 else:
                     dest_sync = S3NewaveUnitOfWorkSync(dest_uow)
-                
+
                 # Get the appropriate rule repository for the destination program
                 reservoir_repo = reservoir_factory(dest.program)
-                
+
                 # Apply rules using existing business logic with sync wrappers
                 result = await reservoir_repo.apply(
                     req.rules,
                     sources_sync,
                     dest_sync,
                 )
-                
+
                 # Check for errors from legacy code
                 if isinstance(result, HTTPResponse):
                     if result.code == 404:
@@ -190,11 +194,11 @@ async def apply_reservoir_rules_v2(
                         raise ParseError(result.detail, {})
                     else:
                         raise RuleApplicationError(result.detail, {})
-                
+
                 # Upload modified result to S3
                 output_key = await dest_uow.upload_result()
                 Log.log().info(f"Uploaded result to s3://{dest.bucket}/{output_key}")
-        
+
         return ReservoirRulesResponseV2(
             success=True,
             execution_hash=dest.execution_hash,
@@ -202,23 +206,23 @@ async def apply_reservoir_rules_v2(
             rules_applied=result,
             message=f"Applied {len(result)} reservoir rules",
         )
-    
+
     except ArtifactNotFoundError as e:
         Log.log().error(f"Artifact not found: {e.message}")
         raise HTTPException(status_code=404, detail=e.to_dict())
-    
+
     except ParseError as e:
         Log.log().error(f"Parse error: {e.message}")
         raise HTTPException(status_code=422, detail=e.to_dict())
-    
+
     except RuleApplicationError as e:
         Log.log().error(f"Rule application error: {e.message}")
         raise HTTPException(status_code=500, detail=e.to_dict())
-    
+
     except S3OperationError as e:
         Log.log().error(f"S3 operation error: {e.message}")
         raise HTTPException(status_code=500, detail=e.to_dict())
-    
+
     except Exception as e:
         Log.log().exception(f"Unexpected error: {str(e)}")
         raise HTTPException(

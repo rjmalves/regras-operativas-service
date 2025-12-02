@@ -122,9 +122,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
     def arquivos(self) -> Union[Arquivos, HTTPResponse]:
         if self.__arquivos is None:
             try:
-                self.__arquivos = Arquivos.read(
-                    join(self.__path, self.__caso.arquivos)
-                )
+                self.__arquivos = Arquivos.read(join(self.__path, self.__caso.arquivos))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.__caso.arquivos}"
                 Log.log().error(msg)
@@ -135,9 +133,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
         if self.__read_dger is False:
             self.__read_dger = True
             try:
-                caminho = pathlib.Path(self.__path).joinpath(
-                    self.arquivos.dger
-                )
+                caminho = pathlib.Path(self.__path).joinpath(self.arquivos.dger)
                 script = pathlib.Path(Settings.installdir).joinpath(
                     Settings.encoding_script
                 )
@@ -148,9 +144,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dger}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.dger}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.dger}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__dger
 
@@ -180,16 +174,12 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_confhd = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.confhd}")
-                self.__confhd = Confhd.read(
-                    join(self.__path, self.arquivos.confhd)
-                )
+                self.__confhd = Confhd.read(join(self.__path, self.arquivos.confhd))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.confhd}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.confhd}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.confhd}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__confhd
 
@@ -205,16 +195,12 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_eafpast = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.vazpast}")
-                self.__eafpast = Eafpast.read(
-                    join(self.__path, self.arquivos.vazpast)
-                )
+                self.__eafpast = Eafpast.read(join(self.__path, self.arquivos.vazpast))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.vazpast}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.vazpast}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.vazpast}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__eafpast
 
@@ -230,16 +216,12 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_adterm = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.adterm}")
-                self.__adterm = Adterm.read(
-                    join(self.__path, self.arquivos.adterm)
-                )
+                self.__adterm = Adterm.read(join(self.__path, self.arquivos.adterm))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.adterm}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.adterm}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.adterm}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__adterm
 
@@ -260,9 +242,7 @@ class RawNewaveRepository(AbstractNewaveRepository):
                 msg = f"Não foi encontrado o arquivo {self.arquivos.term}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.term}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.term}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__term
 
@@ -278,16 +258,12 @@ class RawNewaveRepository(AbstractNewaveRepository):
             self.__read_modif = True
             try:
                 Log.log().info(f"Lendo arquivo {self.arquivos.modif}")
-                self.__modif = Modif.read(
-                    join(self.__path, self.arquivos.modif)
-                )
+                self.__modif = Modif.read(join(self.__path, self.arquivos.modif))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.modif}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.modif}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.modif}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__modif
 
