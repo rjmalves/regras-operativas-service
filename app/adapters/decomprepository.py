@@ -91,9 +91,7 @@ class RawDecompRepository(AbstractDecompRepository):
     def arquivos(self) -> Union[Arquivos, HTTPResponse]:
         if self.__arquivos is None:
             try:
-                self.__arquivos = Arquivos.read(
-                    join(self.__path, self.__caso.arquivos)
-                )
+                self.__arquivos = Arquivos.read(join(self.__path, self.__caso.arquivos))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.__caso.arquivos}"
                 Log.log().error(msg)
@@ -104,24 +102,18 @@ class RawDecompRepository(AbstractDecompRepository):
         if self.__read_dadger is False:
             self.__read_dadger = True
             try:
-                caminho = pathlib.Path(self.__path).joinpath(
-                    self.arquivos.dadger
-                )
+                caminho = pathlib.Path(self.__path).joinpath(self.arquivos.dadger)
                 script = pathlib.Path(Settings.installdir).joinpath(
                     Settings.encoding_script
                 )
                 await converte_codificacao(caminho, script)
                 Log.log().info(f"Lendo arquivo {self.arquivos.dadger}")
-                self.__dadger = Dadger.read(
-                    join(self.__path, self.arquivos.dadger)
-                )
+                self.__dadger = Dadger.read(join(self.__path, self.arquivos.dadger))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dadger}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.dadger}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.dadger}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__dadger
 
@@ -136,24 +128,18 @@ class RawDecompRepository(AbstractDecompRepository):
         if self.__read_dadgnl is False:
             self.__read_dadgnl = True
             try:
-                caminho = pathlib.Path(self.__path).joinpath(
-                    self.arquivos.dadgnl
-                )
+                caminho = pathlib.Path(self.__path).joinpath(self.arquivos.dadgnl)
                 script = pathlib.Path(Settings.installdir).joinpath(
                     Settings.encoding_script
                 )
                 await converte_codificacao(caminho, script)
                 Log.log().info(f"Lendo arquivo {self.arquivos.dadgnl}")
-                self.__dadgnl = Dadgnl.read(
-                    join(self.__path, self.arquivos.dadgnl)
-                )
+                self.__dadgnl = Dadgnl.read(join(self.__path, self.arquivos.dadgnl))
             except FileNotFoundError as e:
                 msg = f"Não foi encontrado o arquivo {self.arquivos.dadgnl}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.dadgnl}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.dadgnl}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__dadgnl
 
@@ -173,14 +159,10 @@ class RawDecompRepository(AbstractDecompRepository):
                     join(self.__path, f"relato.{self.caso.arquivos}")
                 )
             except FileNotFoundError as e:
-                msg = (
-                    f"Não foi encontrado o arquivo relato.{self.caso.arquivos}"
-                )
+                msg = f"Não foi encontrado o arquivo relato.{self.caso.arquivos}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do relato.{self.caso.arquivos}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do relato.{self.caso.arquivos}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__relato
 
@@ -193,14 +175,10 @@ class RawDecompRepository(AbstractDecompRepository):
                     join(self.__path, f"relgnl.{self.caso.arquivos}")
                 )
             except FileNotFoundError as e:
-                msg = (
-                    f"Não foi encontrado o arquivo relgnl.{self.caso.arquivos}"
-                )
+                msg = f"Não foi encontrado o arquivo relgnl.{self.caso.arquivos}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do relgnl.{self.caso.arquivos}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do relgnl.{self.caso.arquivos}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__relgnl
 
@@ -208,9 +186,7 @@ class RawDecompRepository(AbstractDecompRepository):
         if self.__read_inviabunic is False:
             self.__read_inviabunic = True
             try:
-                Log.log().info(
-                    f"Lendo arquivo inviab_unic.{self.caso.arquivos}"
-                )
+                Log.log().info(f"Lendo arquivo inviab_unic.{self.caso.arquivos}")
                 self.__inviabunic = InviabUnic.read(
                     join(self.__path, f"inviab_unic.{self.caso.arquivos}")
                 )
@@ -234,15 +210,11 @@ class RawDecompRepository(AbstractDecompRepository):
                 msg = f"Não foi encontrado o arquivo {self.arquivos.hidr}"
                 return HTTPResponse(code=404, detail=msg)
             except Exception as e:
-                Log.log().error(
-                    f"Erro na leitura do {self.arquivos.hidr}: {e}"
-                )
+                Log.log().error(f"Erro na leitura do {self.arquivos.hidr}: {e}")
                 return HTTPResponse(code=500, detail=str(e))
         return self.__hidr
 
 
 def factory(kind: str, *args, **kwargs) -> AbstractDecompRepository:
-    mapping: Dict[str, Type[AbstractDecompRepository]] = {
-        "FS": RawDecompRepository
-    }
+    mapping: Dict[str, Type[AbstractDecompRepository]] = {"FS": RawDecompRepository}
     return mapping.get(kind)(*args, **kwargs)

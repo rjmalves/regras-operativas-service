@@ -1,269 +1,354 @@
 # regras-operativas-service
 
-Serviço para aplicação de regras operativas em casos de NEWAVE / DECOMP / DESSEM mediante a evolução de estudos. Este serviço é fornecido por meio de uma API REST contendo uma única rota, que recebe os argumentos necessários para realizar a aplicação de regras operativas do tipo armazenamento-vazão.
+Service for applying reservoir operation rules to NEWAVE and DECOMP energy planning models. Part of the HPC processing pipeline.
 
-Atualmente é esperado que este serviço seja lançado no próprio cluster, com acesso ao sistema de arquivos onde os casos que serão processados se encontram. Além disso, para regras do tipo armazenamento-vazão, é necessária uma prospecção futura dos armazenamentos do caso ao qual serão aplicadas as regras, que hoje é fornecido através do resultado de outros casos, presumidamente anteriores ao caso em questão, na própria rota provida pelo serviço.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Instalação
+## Overview
 
-Para realizar a instalação a partir do repositório, é recomendado criar um ambiente virtual e realizar a instalação das dependências dentro do mesmo.
+The regras-operativas-service applies configurable reservoir operation rules to NEWAVE and DECOMP simulation files. It reads source case data from S3, calculates rule activation based on reservoir storage levels, and writes modified files back to S3.
 
-```
-$ git clone https://github.com/rjmalves/regras-operativas-service
-$ cd regras-operativas-service
-$ python3 -m venv ./venv
-$ source ./venv/bin/activate
-$ pip install -r requirements.txt
-```
+### Key Features
 
-## Configuração
+- **S3 Integration**: Read/write artifacts from S3 buckets
+- **Multi-Source Support**: Aggregate data from multiple source executions
+- **NEWAVE Support**: Modify `re.dat` and `modif.dat` files
+- **DECOMP Support**: Modify `dadger.rvX` files
+- **Docker Deployment**: Containerized with Docker Compose
+- **Health Endpoints**: Kubernetes-ready liveness and readiness probes
 
-A configuração do serviço pode ser feita através de um arquivo de variáveis de ambiente `.env`, existente no próprio diretório de instalação. O conteúdo deste arquivo:
+## Quick Start
 
-```
-CLUSTER_ID=1
-HOST="0.0.0.0"
-PORT=5054
-ROOT_PATH="/api/v1/rules"
-```
+### Using Docker Compose (Recommended)
 
-Cada deploy do `regras-operativas-service` deve ter um atributo `CLUSTER_ID` único, para que outros serviços possam controlar atividades em clusters distintos. 
+```bash
+# Clone repository
+git clone https://github.com/your-org/regras-operativas-service.git
+cd regras-operativas-service
 
-Atualmente as opções suportadas são:
+# Configure environment
+cp .env.example .env
+# Edit .env with your AWS credentials and bucket names
 
-|       Campo       |   Valores aceitos   |
-| ----------------- | ------------------- |
-| CLUSTER_ID        | `int`               |
-| HOST              | `str`               |
-| PORT              | `int`               |
-| ROOT_PATH         | `str` (URL prefix)  |
+# Start service
+docker compose up -d
 
-
-## Uso
-
-Para executar o programa, basta interpretar o arquivo `main.py`:
-
-```
-$ source ./venv/bin/activate
-$ python main.py
+# Check health
+curl http://localhost:8000/health/live
 ```
 
-No terminal é impresso um log de acompanhamento:
+### Local Development
 
-```
-INFO:     Started server process [2133]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:5043 (Press CTRL+C to quit)
-INFO:     127.0.0.1:36872 - "GET /docs HTTP/1.1" 200 OK
-INFO:     127.0.0.1:36872 - "GET /openapi.json HTTP/1.1" 200 OK
-```
+```bash
+# Install uv (if not installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Install dependencies
+uv sync --extra dev
 
-Maiores detalhes sobre a rota disponível pode ser visto ao lançar a aplicação localmente e acessar a rota `/docs`, que possui uma página no formato [OpenAPI](https://swagger.io/specification/). Em geral, casos são referenciados por meio de seus caminhos no sistema de arquivos codificados em `base62` e as regras operativas são modeladas pelo objeto `ReservoirRule`, que possui as especificações:
+# Run locally
+uv run uvicorn main:app --reload --port 8000
 
-```json
-    {
-        "reservoirCode": 0,
-        "uheCode": 0,
-        "constraintType": "string",
-        "month": 0,
-        "minVolume": 0,
-        "maxVolume": 0,
-        "minLimit": 0,
-        "maxLimit": 0,
-        "frequency": "string",
-        "label": "string"
-    }
+# Run tests
+uv run pytest
 ```
 
-## Definição de Regra Operativa
+## API Reference
 
-As regras operativas suportadas por este serviço são do tipo armazenamento-vazão. Isto é, cada regra se define com as propriedades:
+### Apply Reservoir Rules
 
- - `reservoirCode`: código do reservatório cujo volume armazenado define a faixa de operação da usina
- - `uheCode`: código da usina hidrelétrica cuja operação é influenciada pelo reservatório
- - `constraintType`: variável que é influenciada (atualmente suporta QDEF ou QTUR)
- - `month`: mês de vigência da regra, visto que na prática muitas regras são sazonalizadas no ano (1 - 12)
- - `minVolume`: limite inferior da faixa de volume para ativação da regra (%)
- - `maxVolume`: limite superior da faixa de volume para ativação da regra (%)
- - `minLimit`: limite inferior da variável influenciada (m3/s)
- - `maxLimit`: limite superior da variável influenciada (m3/s)
- - `frequency`: frequência de atualização da regra (atualmente suporta S - semanal e M - mensal)
- - `label`: rótulo da faixa de operação definida pela regra (normal, atenção, restrição, etc., apenas informativo)
+**POST** `/reservoir/`
 
-Um exemplo de regras válidas, para a UHE Três Marias (156) no mês de Janeiro, já utilizadas:
+Apply reservoir operation rules to a destination case based on source case data.
 
-```json
-[
-    {
-        "reservoirCode": 156,
-        "uheCode": 156,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 100.0,
-        "maxLimit": 99999.0,
-        "frequency": "M",
-        "label": "Restricao"
-    },
-    {
-        "reservoirCode": 156,
-        "uheCode": 156,
-        "constraintType": "QTUR",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 150.0,
-        "frequency": "M",
-        "label": "Restricao"
-    }
-]
-```
-
-Estas regras definidas acima modelam o comportamento desejado para a UHE Três Marias nos meses de Janeiro, segundo a Resolução ANA nº 70 para a Bacia do Rio São Francisco. É realizada uma limitação da defluência mínima da usina em 100 m3/s e do turbinamento máximo em 150 m3/s, sempre que o reservatório se encontrar entre 0% e 30% do volume útil.
-
-## Regras de Reservatórios Equivalentes
-
-Uma determinada variável de operação de uma usina pode ser determinada não apenas a partir de um reservatório, mas a partir do armazenamento total de um conjunto de reservatórios, o que é chamado de reservatório equivalente. Desta forma, é suportada a definição de mais de uma regra que atua em uma determinada usina no mesmo mês, na mesma variável e com a mesma periodicidade, tomando como base diferentes reservatórios.
-
-O serviço irá construir uma regra de reservatório equivalente a partir das regras informadas, agrupando todas as regras com os mesmos `uheCode`, `constaintType`, `month`, `frequency` e `label`. Repare que, para este caso, é importante que cada faixa de operação da usina tenha um label diferente, e que regras de reservatórios que compõe um reservatório equivalente tenham `labels` compatíveis.
-
-Um exemplo de regras equivalentes é para a defluência da usina de Jupiá (45), que pode ser determinada com base em um reservatório equivalente construído com usinas da bacia do Grande. Para o mês de janeiro, por exemplo, na faixa de restrição:
-
-
-```json
-[
-    {
-        "reservoirCode": 6,
-        "uheCode": 45,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 2700.0,
-        "frequency": "S",
-        "label": "Restricao"
-    },
-    {
-        "reservoirCode": 24,
-        "uheCode": 45,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 2700.0,
-        "frequency": "S",
-        "label": "Restricao"
-    },
-    {
-        "reservoirCode": 25,
-        "uheCode": 45,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 2700.0,
-        "frequency": "S",
-        "label": "Restricao"
-    },
-    {
-        "reservoirCode": 31,
-        "uheCode": 45,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 2700.0,
-        "frequency": "S",
-        "label": "Restricao"
-    },
-]
-```
-
-Este conjunto de regras informa para o serviço que deve ser construído um reservatório equivalente com o armazenamento das usinas de Furnas (6), Emborcação (24), Nova Ponte (25) e Itumbiara (31). Quando este reservatório se encontrar entre 0% e 30%, a defluência de Jupiá será limitada superiormente a 2700 m3/s. Internamente o serviço cria a representação de um `ReservoirGroupRule` para modelar esta regra:
-
-```json
-    {
-        "reservoirCodes": [6, 24, 25, 31],
-        "uheCode": 45,
-        "constraintType": "QDEF",
-        "month": 1,
-        "minVolume": 0.0,
-        "maxVolume": 30.0,
-        "minLimit": 0.0,
-        "maxLimit": 2700.0,
-        "frequency": "S",
-        "label": "Restricao"
-    },
-```
-
-## Arquivos Alterados com as Regras
-
-Em cada um dos modelos energéticos as regras são aplicadas alterando arquivos específicos, informando de modo direto ou indireto a restrição imposta pelas regras operativas.
-
-### NEWAVE
-
-No modelo NEWAVE são alterados principalmente os arquivos `re.dat` e `modif.dat`. Em particular, para casos totalmente individualizados, apenas o arquivo `modif.dat` é necessário, visto que neste é possível informar restrições de mínimo e máximo para ambas as variáveis `QDEF` e `QTUR`. 
-
-Para casos com modelagem agregada, qualquer restrição além de `QDEF` mínimo não é representável, sendo necessário fazer uma aproximação no arquivo `re.dat`. Neste, é utilizada uma aproximação para representar valores máximos de turbinamento e/ou defluência a partir de valores de geração máxima. Valores que superem o engolimento máximo da usina não são representadas, por simplificação, visto que não teriam efeito prático.
-
-De modo mais direto, são alterados os arquivos para cada limite e variável:
-
-- `QDEF` mínimo: `modif.dat`
-- `QDEF` máximo: (no momento não incluído no NEWAVE)
-- `QTUR` mínimo: `modif.dat`
-- `QTUR` máximo: `modif.dat` e `re.dat`
-
-
-### DECOMP
-
-No modelo DECOMP o único arquivo alterado é o `dadger.rvX`, que contém as informações de todas as restrições de vazão. São editados, ou criados se necessário, os registros `HQ`, `LQ` e `CQ`, informando os códigos de usinas específicos, as variáveis adequadas e os limites impostos por cada regra.
-
-
-## Rota Fornecida pelo Serviço
-
-A única rota fornecida pelo serviço é `POST /reservoir`, onde o corpo do objeto `JSON` contém o seguinte formato:
+#### Request
 
 ```json
 {
-    "sources": [
-        {
-        "id": "IgMI7zzpD0irzRysgz7ia2z2KbKEIQEpZ2GpEhUvJGvNxpMlD65iC9oeOQ4",
-        "program": "DECOMP"
-        }
-    ],
-    "destination": {
-        "id": "IgMI7zzpD0irzRysgz7ia2z2KbKEIQEpZ2GpEhUvJGvNxpMlD65lJjqJqsv",
-        "program": "NEWAVE"
-    },
-    "rules": [
-        {
-            "reservoirCode": "156",
-            "uheCode": 156,
-            "constraintType": "QDEF",
-            "month": 1.0,
-            "minVolume": 0.0,
-            "maxVolume": 30.0,
-            "minLimit": 100.0,
-            "maxLimit": 150.0,
-            "frequency": "M",
-            "label": "Restricao"
-        }
-    ]
+  "sources": [
+    {
+      "bucket": "decomp-bucket",
+      "execution_hash": "abc123def456",
+      "program": "DECOMP"
+    }
+  ],
+  "destination": {
+    "bucket": "newave-bucket",
+    "execution_hash": "xyz789ghi012",
+    "program": "NEWAVE",
+    "output_prefix": "ingest"
+  },
+  "rules": [
+    {
+      "reservoirCode": 156,
+      "uheCode": 156,
+      "constraintType": "QDEF",
+      "month": 1,
+      "minVolume": 0.0,
+      "maxVolume": 30.0,
+      "minLimit": 100.0,
+      "maxLimit": 99999.0,
+      "frequency": "M",
+      "label": "Restricao Exemplo"
+    }
+  ]
 }
 ```
 
-Os campos informados são:
+#### Response (Success - 200)
 
-- `sources`: Uma lista de casos excutados anteriormente, em ordem cronológica, que podem ser utilizados para extrair uma prospecção de armazenamentos para aplicação das regras. Um caso é resumido a um atributo `id`, que é o caminho para o diretório do caso codificado em `base62`, e um atributo `program` para o nome do programa. Atualmente somente casos de `DECOMP` são suportados para prospecção.  
-- `destination`: Um caso, representado da mesma maneira do campo anterior, para ser alvo da aplicação de regras.  
-- `rules`: Uma lista de objetos `ReservoirRule`, descritos em uma seção anterior.
+```json
+{
+  "success": true,
+  "execution_hash": "xyz789ghi012",
+  "output_key": "ingest/xyz789ghi012_regras.zip",
+  "rules_applied": [...],
+  "message": "Applied 5 reservoir rules"
+}
+```
 
-A resposta, se flexibilização for realizada com sucesso, contém um objeto com uma lista de `ReservoirGroupRule`, que foram aplicadas ao caso.
+#### Response (Error - 404)
+
+```json
+{
+  "error_code": "ARTIFACT_NOT_FOUND",
+  "message": "Object not found: s3://decomp-bucket/artifacts/abc123/entradas/deck_processado.zip",
+  "details": {
+    "bucket": "decomp-bucket",
+    "key": "artifacts/abc123/entradas/deck_processado.zip"
+  }
+}
+```
+
+### Health Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health/live` | Liveness probe - returns 200 if service is running |
+| `GET /health/ready` | Readiness probe - returns 200 if S3 is accessible |
+| `GET /health/version` | Returns service version information |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HOST` | Bind address | `0.0.0.0` |
+| `PORT` | Bind port | `8000` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+| `AWS_REGION` | AWS region | `us-east-1` |
+| `S3_ENDPOINT_URL` | S3 endpoint (for LocalStack/MinIO) | _(empty = AWS)_ |
+| `DEFAULT_DECOMP_BUCKET` | Default DECOMP bucket | `decomp-bucket` |
+| `DEFAULT_NEWAVE_BUCKET` | Default NEWAVE bucket | `newave-bucket` |
+| `TEMP_DIR` | Temporary directory | `/tmp/regras-operativas` |
+
+### S3 Bucket Structure
+
+```
+s3://decomp-bucket/
+├── artifacts/
+│   └── <execution_hash>/
+│       ├── entradas/
+│       │   └── deck_processado.zip    # Input
+│       └── saidas/
+│           └── relato.rv0             # For prospection
+└── ingest/
+    └── <execution_hash>_regras.zip    # Output
+
+s3://newave-bucket/
+├── artifacts/
+│   └── <execution_hash>/
+│       └── entradas/
+│           └── deck_processado.zip    # Input
+└── ingest/
+    └── <execution_hash>_regras.zip    # Output
+```
+
+### IAM Permissions
+
+The service requires the following S3 permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::decomp-bucket",
+        "arn:aws:s3:::decomp-bucket/*",
+        "arn:aws:s3:::newave-bucket",
+        "arn:aws:s3:::newave-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
+## Reservoir Rule Definition
+
+Reservoir operation rules control flow constraints based on storage levels. Each rule defines:
+
+| Field | Description |
+|-------|-------------|
+| `reservoirCode` | Reservoir code whose storage determines the operating range |
+| `uheCode` | Hydroelectric plant code affected by the rule |
+| `constraintType` | Variable constrained (`QDEF` for outflow, `QTUR` for turbine flow) |
+| `month` | Month of rule validity (1-12) |
+| `minVolume` | Lower storage threshold for rule activation (%) |
+| `maxVolume` | Upper storage threshold for rule activation (%) |
+| `minLimit` | Lower limit of constrained variable (m³/s) |
+| `maxLimit` | Upper limit of constrained variable (m³/s) |
+| `frequency` | Update frequency (`S` = weekly, `M` = monthly) |
+| `label` | Operating range label (informational) |
+
+### Example: Três Marias (UHE 156)
+
+```json
+[
+  {
+    "reservoirCode": 156,
+    "uheCode": 156,
+    "constraintType": "QDEF",
+    "month": 1,
+    "minVolume": 0.0,
+    "maxVolume": 30.0,
+    "minLimit": 100.0,
+    "maxLimit": 99999.0,
+    "frequency": "M",
+    "label": "Restricao"
+  }
+]
+```
+
+This rule limits the minimum outflow to 100 m³/s when storage is between 0% and 30%.
+
+### Equivalent Reservoir Rules
+
+Rules can aggregate storage from multiple reservoirs. Rules with the same `uheCode`, `constraintType`, `month`, `frequency`, and `label` are grouped into an equivalent reservoir:
+
+```json
+[
+  {"reservoirCode": 6, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...},
+  {"reservoirCode": 24, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...},
+  {"reservoirCode": 25, "uheCode": 45, "constraintType": "QDEF", "month": 1, ...}
+]
+```
+
+This creates an equivalent reservoir from Furnas (6), Emborcação (24), and Nova Ponte (25).
+
+## Files Modified
+
+### NEWAVE
+
+| Constraint | Files Modified |
+|------------|----------------|
+| `QDEF` min | `modif.dat` |
+| `QTUR` min | `modif.dat` |
+| `QTUR` max | `modif.dat`, `re.dat` |
+
+### DECOMP
+
+| File | Registers Modified |
+|------|-------------------|
+| `dadger.rvX` | `HQ`, `LQ`, `CQ` |
+
+## Development
+
+### Project Structure
+
+```
+regras-operativas-service/
+├── app/
+│   ├── adapters/         # S3, DECOMP, NEWAVE repositories
+│   ├── models/           # Pydantic models
+│   ├── routers/          # FastAPI routers
+│   ├── services/         # Unit of Work classes
+│   ├── internal/         # Settings, exceptions
+│   └── utils/            # Utilities (zip, temp dirs)
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── deploy/               # systemd and scripts
+├── main.py
+├── pyproject.toml
+├── Dockerfile
+└── docker-compose.yml
+```
+
+### Running Tests
+
+```bash
+# All tests
+uv run pytest
+
+# With coverage
+uv run pytest --cov=app --cov-report=html
+
+# Unit tests only
+uv run pytest tests/unit/ -v
+
+# Integration tests only
+uv run pytest tests/integration/ -v
+```
+
+### Code Quality
+
+```bash
+# Linting
+uv run ruff check app/
+
+# Type checking
+uv run mypy app/
+
+# Format code
+uv run ruff format app/
+```
+
+## Deployment
+
+### Docker Compose (Production)
+
+```bash
+# Start with Traefik integration
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+```
+
+### systemd Service
+
+```bash
+# Install
+sudo ./deploy/install.sh
+
+# Status
+sudo systemctl status regras-operativas
+
+# Logs
+journalctl -u regras-operativas -f
+
+# Uninstall
+sudo ./deploy/uninstall.sh
+```
+
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed deployment instructions.
+
+## Migration from v1.x
+
+See [MIGRATION.md](docs/MIGRATION.md) for migration guide from PM2/filesystem to Docker/S3.
+
+## Related Services
+
+- [flexibilizador-service](https://github.com/your-org/flexibilizador-service) - DECOMP flexibility service
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file.

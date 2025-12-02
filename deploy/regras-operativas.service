@@ -1,0 +1,35 @@
+[Unit]
+Description=Regras Operativas Service - Reservoir Rules API
+Documentation=https://github.com/your-org/regras-operativas-service
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=docker
+WorkingDirectory=/opt/regras-operativas-service
+
+# Environment file
+EnvironmentFile=-/opt/regras-operativas-service/.env
+
+# Docker compose commands
+ExecStartPre=/usr/bin/docker compose pull
+ExecStart=/usr/bin/docker compose up --remove-orphans
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=regras-operativas
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

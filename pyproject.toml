@@ -1,0 +1,232 @@
+[project]
+name = "regras-operativas-service"
+version = "2.0.0"
+description = "Reservoir operation rules service for NEWAVE/DECOMP energy planning models"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Rogerio Alves" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+keywords = ["energy", "planning", "newave", "decomp", "reservoir", "rules"]
+
+dependencies = [
+    # Web framework
+    "fastapi[standard]>=0.115.0",
+    
+    # AWS SDK
+    "boto3>=1.34.0",
+    
+    # Data processing
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    
+    # NEWAVE/DECOMP libraries
+    "inewave>=0.0.80",
+    "idecomp>=0.0.64",
+    
+    # HTTP client
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    
+    # Configuration
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    
+    # Legacy compatibility (for v1 API base62 encoding)
+    "pybase62>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.27.0",
+    
+    # AWS mocking
+    "moto[s3]>=5.0.0",
+    
+    # Linting & formatting
+    "ruff>=0.4.0",
+    "mypy>=1.8.0",
+    
+    # Type stubs
+    "boto3-stubs[s3]>=1.34.0",
+    "pandas-stubs>=2.0.0",
+    "types-requests>=2.31.0",
+]
+
+[project.urls]
+Repository = "https://github.com/rjmalves/regras-operativas-service"
+Documentation = "https://github.com/rjmalves/regras-operativas-service#readme"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "-ra",
+]
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (may use mocked AWS)",
+    "slow: Slow tests (skipped by default)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+fail_under = 0
+show_missing = true
+
+# Ruff configuration (linting & formatting)
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # function call in default argument (FastAPI Depends)
+    "B904",   # raise without from (sometimes intentional)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG001", "ARG002"]  # Unused arguments OK in tests
+# Legacy code - ignore all modernization and style rules
+"app/adapters/decomprepository.py" = ["ALL"]
+"app/adapters/newaverepository.py" = ["ALL"]
+"app/adapters/reservoirrulerepository.py" = ["ALL"]
+"app/adapters/uriparserrepository.py" = ["ALL"]
+"app/services/unitofwork.py" = ["ALL"]
+"app/models/reservoirrule.py" = ["ALL"]
+"app/models/reservoirgrouprule.py" = ["ALL"]
+"app/models/program.py" = ["ALL"]
+"app/models/reservoirrulesrequest.py" = ["ALL"]
+"app/models/reservoirrulesresponse.py" = ["ALL"]
+"app/routers/reservoir.py" = ["ALL"]
+"app/utils/encoding.py" = ["ALL"]
+"app/utils/singleton.py" = ["ALL"]
+"app/utils/terminal.py" = ["ALL"]
+"app/utils/__init__.py" = ["ALL"]
+"app/internal/httpresponse.py" = ["ALL"]
+"app/internal/settings.py" = ["ALL"]
+"app/internal/dependencies.py" = ["ALL"]
+"app/internal/fs.py" = ["ALL"]
+"app/internal/terminal.py" = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_ignores = false
+check_untyped_defs = false
+strict_optional = false
+ignore_missing_imports = true
+
+# Strict settings for new code only
+[[tool.mypy.overrides]]
+module = [
+    "app.adapters.s3_repository",
+    "app.utils.zip_utils",
+    "app.utils.temp_manager",
+    "app.internal.exceptions",
+    "app.routers.health",
+    "app.models.errors",
+    "app.models.case",
+]
+warn_return_any = true
+check_untyped_defs = true
+strict_optional = true
+
+# Ignore all errors in legacy code
+[[tool.mypy.overrides]]
+module = [
+    "app.adapters.decomprepository",
+    "app.adapters.newaverepository",
+    "app.adapters.reservoirrulerepository",
+    "app.adapters.uriparserrepository",
+    "app.services.unitofwork",
+    "app.routers.reservoir",
+    "app.utils.encoding",
+    "app.utils.singleton",
+    "app.utils.terminal",
+    "app.utils",
+    "app.internal.terminal",
+    "app.internal.fs",
+    "app.internal.httpresponse",
+    "app.internal.settings",
+    "app.internal.dependencies",
+    "app.models.reservoirrule",
+    "app.models.reservoirgrouprule",
+    "app.models.reservoirrulesrequest",
+    "app.models.reservoirrulesresponse",
+    "app.models.program",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "inewave.*",
+    "idecomp.*",
+    "moto.*",
+    "base62.*",
+]
+ignore_missing_imports = true

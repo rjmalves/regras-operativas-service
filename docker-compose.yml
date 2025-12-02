@@ -1,0 +1,77 @@
+# =============================================================================
+# Regras Operativas Service - Production Docker Compose
+# =============================================================================
+# Usage: docker compose up -d
+# =============================================================================
+
+services:
+  regras-operativas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: regras-operativas-service:${IMAGE_TAG:-latest}
+    container_name: regras-operativas-service
+    restart: unless-stopped
+    
+    # Environment configuration
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ROOT_PATH=/api/v1/rules
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # S3 Configuration
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-}
+      - DEFAULT_NEWAVE_BUCKET=${DEFAULT_NEWAVE_BUCKET:-newave-bucket}
+      - DEFAULT_DECOMP_BUCKET=${DEFAULT_DECOMP_BUCKET:-decomp-bucket}
+      
+      # Processing
+      - TEMP_DIR=/tmp/regras-operativas
+      - ZIP_COMPRESSION_LEVEL=${ZIP_COMPRESSION_LEVEL:-6}
+      - MAX_TEMP_DIR_AGE_HOURS=${MAX_TEMP_DIR_AGE_HOURS:-24}
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Traefik labels for reverse proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.regras-operativas.rule=PathPrefix(`/api/v1/rules`)"
+      - "traefik.http.routers.regras-operativas.entrypoints=web"
+      - "traefik.http.services.regras-operativas.loadbalancer.server.port=8000"
+      - "traefik.http.services.regras-operativas.loadbalancer.healthcheck.path=/health/live"
+      - "traefik.http.services.regras-operativas.loadbalancer.healthcheck.interval=30s"
+    
+    # Volumes for temporary data (optional - for debugging)
+    volumes:
+      - regras-temp:/tmp/regras-operativas
+    
+    # Network
+    networks:
+      - hpc-network
+
+volumes:
+  regras-temp:
+    driver: local
+
+networks:
+  hpc-network:
+    external: true
+    name: ${NETWORK_NAME:-hpc-network}
